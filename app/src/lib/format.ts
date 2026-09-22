@@ -59,6 +59,8 @@ export function errorHeadline(kind: ErrorKind | null | undefined): string {
   switch (kind) {
     case 'unauthorized':
       return 'Key rejected'
+    case 'forbidden':
+      return 'No account access'
     case 'rate_limited':
       return 'Rate limited'
     case 'unreachable':

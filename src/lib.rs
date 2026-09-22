@@ -14,7 +14,7 @@ use std::path::PathBuf;
 use anyhow::{Context, Result, anyhow};
 use async_trait::async_trait;
 use keyring::Entry;
-use reqwest::Client;
+use reqwest::{Client, StatusCode};
 use rusqlite::{Connection, params};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -121,8 +121,12 @@ pub struct Snapshot {
 pub enum ProviderError {
     /// Nothing in the keychain and nothing in the environment.
     MissingCredential(String),
-    /// The provider rejected the key.
+    /// The provider rejected the key itself.
     Unauthorized,
+    /// The key is valid but not allowed to do this, typically because it is
+    /// scoped for inference only. A different problem from a bad key, and a
+    /// different thing for the user to go and do about it.
+    Forbidden(String),
     /// The provider is throttling balance checks.
     RateLimited,
     /// No response arrived at all.
@@ -139,6 +143,7 @@ impl ProviderError {
         match self {
             ProviderError::MissingCredential(_) => "missing_credential",
             ProviderError::Unauthorized => "unauthorized",
+            ProviderError::Forbidden(_) => "forbidden",
             ProviderError::RateLimited => "rate_limited",
             ProviderError::Unreachable(_) => "unreachable",
             ProviderError::BadResponse(_) => "bad_response",
@@ -154,6 +159,9 @@ impl fmt::Display for ProviderError {
                 "no API key; run `set-key {name} <key>` or set the environment variable"
             ),
             ProviderError::Unauthorized => write!(f, "the API key was rejected"),
+            ProviderError::Forbidden(detail) => {
+                write!(f, "this key cannot read the account balance: {detail}")
+            }
             ProviderError::RateLimited => write!(f, "rate limited, try again later"),
             ProviderError::Unreachable(detail) => {
                 write!(f, "could not reach the provider: {detail}")
@@ -164,6 +172,41 @@ impl fmt::Display for ProviderError {
 }
 
 impl Error for ProviderError {}
+
+/// Turn a non-success response into an error, keeping the provider's own
+/// explanation when it sent one.
+///
+/// "API key scope required: account:read" tells a user exactly what to fix.
+/// "HTTP 403" tells them nothing. Providers that would rather not answer return
+/// an HTML page for an unknown path, and that is not worth repeating back.
+fn provider_error(url: &str, status: StatusCode, body: &str) -> ProviderError {
+    let detail = serde_json::from_str::<serde_json::Value>(body)
+        .ok()
+        .and_then(|value| {
+            value
+                .get("error")
+                .and_then(|error| error.get("message"))
+                .and_then(|message| message.as_str())
+                .map(str::to_string)
+        })
+        .or_else(|| {
+            let trimmed = body.trim();
+            (!trimmed.is_empty() && !trimmed.starts_with('<'))
+                .then(|| trimmed.chars().take(200).collect())
+        });
+
+    match status.as_u16() {
+        401 => ProviderError::Unauthorized,
+        403 => ProviderError::Forbidden(
+            detail.unwrap_or_else(|| "the provider refused this request".to_string()),
+        ),
+        429 => ProviderError::RateLimited,
+        code => ProviderError::BadResponse(match detail {
+            Some(detail) => format!("{url} answered HTTP {code}: {detail}"),
+            None => format!("{url} answered HTTP {code}"),
+        }),
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Providers
@@ -251,11 +294,8 @@ impl OpenRouter {
 
         let status = response.status();
         if !status.is_success() {
-            return Err(match status.as_u16() {
-                401 | 403 => ProviderError::Unauthorized,
-                429 => ProviderError::RateLimited,
-                code => ProviderError::BadResponse(format!("{url} answered HTTP {code}")),
-            });
+            let body = response.text().await.unwrap_or_default();
+            return Err(provider_error(url, status, &body));
         }
 
         response
@@ -320,11 +360,8 @@ impl Provider for CheaperInference {
 
         let status = response.status();
         if !status.is_success() {
-            return Err(match status.as_u16() {
-                401 | 403 => ProviderError::Unauthorized,
-                429 => ProviderError::RateLimited,
-                code => ProviderError::BadResponse(format!("{url} answered HTTP {code}")),
-            });
+            let body = response.text().await.unwrap_or_default();
+            return Err(provider_error(url, status, &body));
         }
 
         let response = response
@@ -850,6 +887,34 @@ mod tests {
         // No credits recorded, so nothing could classify it as a balance.
         assert_eq!(rows[1].basis, Basis::Usage);
         assert!(!rows[1].basis.is_balance());
+    }
+
+    #[test]
+    fn provider_errors_keep_the_providers_own_wording() {
+        let body = r#"{"error":{"message":"API key scope required: account:read.","code":"insufficient_scope"}}"#;
+
+        let error = provider_error("https://x/v1/account/balance", StatusCode::FORBIDDEN, body);
+        assert_eq!(error.kind(), "forbidden");
+        assert!(error.to_string().contains("account:read"));
+
+        // A valid key missing a scope is not the same failure as a bad key.
+        assert_eq!(
+            provider_error("u", StatusCode::UNAUTHORIZED, "").kind(),
+            "unauthorized"
+        );
+        assert_eq!(
+            provider_error("u", StatusCode::TOO_MANY_REQUESTS, "").kind(),
+            "rate_limited"
+        );
+
+        // An HTML 404 page is not worth repeating back to anyone.
+        let error = provider_error(
+            "https://x/v1/nope",
+            StatusCode::NOT_FOUND,
+            "<!DOCTYPE html><html><body>not found</body></html>",
+        );
+        assert!(!error.to_string().contains("DOCTYPE"));
+        assert!(error.to_string().contains("answered HTTP 404"));
     }
 
     #[test]

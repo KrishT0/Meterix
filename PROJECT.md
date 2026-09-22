@@ -200,10 +200,37 @@ first error, which meant a missing key for one provider also threw away the
 other provider's balance.
 
 **Errors are typed, not strings.** `ProviderError` distinguishes a missing
-credential, a rejected key, rate limiting, an unreachable host and an unusable
-response. The v1 dashboard needs to tell those apart, and the v2 tray icon is
-colour-coded off them. `anyhow` is only used at the top level, where nothing
-needs to branch.
+credential, a rejected key, a key without permission, rate limiting, an
+unreachable host and an unusable response. The v1 dashboard needs to tell those
+apart, and the v2 tray icon is colour-coded off them. `anyhow` is only used at
+the top level, where nothing needs to branch.
+
+A provider's own explanation is kept rather than replaced. "API key scope
+required: account:read" tells someone what to go and fix; "HTTP 403" does not.
+Provider error bodies are parsed for a message, and HTML error pages are
+discarded rather than repeated back.
+
+## Provider notes
+
+Checked against the live APIs rather than the documentation, because the two
+disagreed.
+
+**OpenRouter.** `GET /api/v1/key` returns `limit`, `limit_remaining` and
+`limit_reset` as nullable per-key caps. `null` means no cap was configured,
+which is normal, and the first version wrongly treated it as a parse failure.
+`GET /api/v1/credits` gives the real account balance and is called on every
+fetch despite the docs saying it needs a management key.
+
+**CheaperInference.** The base URL is `https://api.cheaperinference.com/v1` and
+the balance endpoint is `GET /v1/account/balance` with `Authorization: Bearer`.
+Both were confirmed: a wrong path returns the marketing site's HTML 404, while
+the real path returns a structured JSON error.
+
+The catch is scope. An **inference-only key authenticates but cannot read a
+balance** — it answers `403 insufficient_scope` asking for `account:read`.
+`GET /v1/models` succeeds with any valid key, so that is the quick way to tell
+"the key is fine, the scope is missing" from "the key is wrong". A key needs the
+`account:read` scope for this provider to be trackable at all.
 
 ## Open questions
 

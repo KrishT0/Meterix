@@ -9,6 +9,7 @@ async-trait = "0.1"
 reqwest = { version = "0.13.5", features = ["json"] }
 rusqlite = { version = "0.32", features = ["bundled"] }
 serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1"
 tokio = { version = "1.53.1", features = ["full"] }
 
 # keyring has no default features, and with none selected it silently falls
@@ -25,6 +26,3 @@ keyring = { version = "3", features = ["apple-native"] }
 # undo the rustls-only dependency tree that keeps Linux packaging simple.
 [target.'cfg(target_os = "linux")'.dependencies]
 keyring = { version = "3", features = ["sync-secret-service", "crypto-rust"] }
-
-[dev-dependencies]
-serde_json = "1"

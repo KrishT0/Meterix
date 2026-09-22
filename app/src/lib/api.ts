@@ -7,6 +7,7 @@ export type Basis = 'account_credits' | 'key_cap' | 'usage'
 export type ErrorKind =
   | 'missing_credential'
   | 'unauthorized'
+  | 'forbidden'
   | 'rate_limited'
   | 'unreachable'
   | 'bad_response'
