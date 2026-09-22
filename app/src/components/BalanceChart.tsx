@@ -3,7 +3,7 @@ import { parseUtc, usd } from '../lib/format'
 import type { Tone } from './ui'
 
 const WIDTH = 1000
-const HEIGHT = 200
+const HEIGHT = 170
 
 const strokeOf: Record<Tone, string> = {
   teal: 'var(--color-teal)',
@@ -54,8 +54,8 @@ export function BalanceChart({ series }: { series: Series[] }) {
     <div className="flex flex-wrap items-center gap-4">
       {series.map((entry) => (
         <span key={entry.name} className="flex items-center gap-1.5">
-          <span className="h-[7px] w-[7px] rounded-full" style={{ background: strokeOf[entry.tone] }} />
-          <span className="label-sm text-ink-dim capitalize">{entry.name}</span>
+          <span className="h-[6px] w-[6px] rounded-full" style={{ background: strokeOf[entry.tone] }} />
+          <span className="label-sm text-ink-dim">{entry.name}</span>
         </span>
       ))}
       {excluded > 0 ? (
@@ -73,13 +73,13 @@ export function BalanceChart({ series }: { series: Series[] }) {
           <span className="label text-ink-muted">Balance over time</span>
           {legend}
         </div>
-        <div className="mt-4 rounded-[10px] border border-line bg-inset px-4 py-8 text-center">
-          <p className="num text-[12px] text-ink-muted">
+        <div className="mt-3 rounded-[10px] border border-line bg-inset px-3.5 py-6 text-center">
+          <p className="num text-[11px] text-ink-muted">
             {all.length === 0
               ? 'No balance readings stored yet.'
               : 'One reading stored. A trend needs at least two.'}
           </p>
-          <p className="num mt-1.5 text-[11px] text-ink-muted">
+          <p className="num mt-1 text-[10px] text-ink-muted">
             Every refresh adds a point. At a 30 minute poll, a day is about 48 points.
           </p>
         </div>
@@ -93,7 +93,7 @@ export function BalanceChart({ series }: { series: Series[] }) {
   const vMax = Math.max(1, ...all.map((point) => point.remaining))
 
   const x = (time: number) => (tMax === tMin ? WIDTH / 2 : ((time - tMin) / (tMax - tMin)) * WIDTH)
-  const y = (value: number) => HEIGHT - 16 - (value / vMax) * (HEIGHT - 40)
+  const y = (value: number) => HEIGHT - 14 - (value / vMax) * (HEIGHT - 34)
 
   return (
     <div>
@@ -105,14 +105,14 @@ export function BalanceChart({ series }: { series: Series[] }) {
       <svg
         viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
         preserveAspectRatio="none"
-        className="mt-4 h-[200px] w-full"
+        className="mt-3 h-[170px] w-full"
         role="img"
         aria-label="Remaining balance over time"
       >
         <g stroke="var(--color-line)" strokeWidth="1">
-          <line x1="0" y1="40" x2={WIDTH} y2="40" />
-          <line x1="0" y1="90" x2={WIDTH} y2="90" />
-          <line x1="0" y1="140" x2={WIDTH} y2="140" />
+          <line x1="0" y1="35" x2={WIDTH} y2="35" />
+          <line x1="0" y1="78" x2={WIDTH} y2="78" />
+          <line x1="0" y1="121" x2={WIDTH} y2="121" />
         </g>
 
         {plotted.map((entry) =>
@@ -135,7 +135,7 @@ export function BalanceChart({ series }: { series: Series[] }) {
         )}
       </svg>
 
-      <div className="num mt-3 flex items-center justify-between text-[11px] text-ink-muted">
+      <div className="num mt-2.5 flex items-center justify-between text-[10px] text-ink-muted">
         <span>{new Date(tMin).toLocaleString()}</span>
         <span>peak {usd(vMax)}</span>
         <span>{new Date(tMax).toLocaleString()}</span>

@@ -14,8 +14,8 @@
       {
         "label": "main",
         "title": "Meterix",
-        "width": 1180,
-        "height": 780,
+        "width": 1080,
+        "height": 720,
         "minWidth": 880,
         "minHeight": 560,
         "resizable": true,

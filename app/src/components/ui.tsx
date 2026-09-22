@@ -85,7 +85,7 @@ export function Label({ children, className = '' }: { children: ReactNode; class
 
 export function Pill({ children, className = '' }: { children: ReactNode; className?: string }) {
   return (
-    <span className={`label-sm rounded-full border px-2.5 py-1 ${className}`}>{children}</span>
+    <span className={`label-sm rounded-full border px-2 py-0.5 ${className}`}>{children}</span>
   )
 }
 
@@ -106,7 +106,7 @@ const buttonVariants = {
 export function Button({ variant = 'secondary', className = '', ...rest }: ButtonProps) {
   return (
     <button
-      className={`rounded-[10px] px-3.5 py-2 text-[13px] transition disabled:cursor-not-allowed disabled:opacity-40 ${buttonVariants[variant]} ${className}`}
+      className={`rounded-lg px-3 py-1.5 text-[12px] transition disabled:cursor-not-allowed disabled:opacity-40 ${buttonVariants[variant]} ${className}`}
       {...rest}
     />
   )
@@ -133,9 +133,9 @@ function icon(path: ReactNode, size = 12) {
   }
 }
 
-export const CheckIcon = icon(<path d="M20 6 9 17l-5-5" />)
-export const CrossIcon = icon(<path d="M18 6 6 18M6 6l12 12" />)
-export const WarningIcon = icon(<path d="M12 8v5M12 17h.01" />)
+export const CheckIcon = icon(<path d="M20 6 9 17l-5-5" />, 10)
+export const CrossIcon = icon(<path d="M18 6 6 18M6 6l12 12" />, 10)
+export const WarningIcon = icon(<path d="M12 8v5M12 17h.01" />, 10)
 export const InfoIcon = icon(
   <>
     <circle cx="12" cy="12" r="9" />
@@ -150,5 +150,5 @@ export const RefreshIcon = icon(
     <path d="M21 12a9 9 0 1 1-3-6.7" />
     <path d="M21 4v5h-5" />
   </>,
-  14,
+  12,
 )

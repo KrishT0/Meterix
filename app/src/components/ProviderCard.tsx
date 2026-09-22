@@ -43,14 +43,14 @@ function Ticks({ readings, tone }: { readings: SnapshotRow[]; tone: string }) {
   const padding = Math.max(0, TICKS - recent.length)
 
   return (
-    <div className="flex items-end gap-[3px]" title={`${recent.length} stored reading(s)`}>
+    <div className="flex items-end gap-[2px]" title={`${recent.length} stored reading(s)`}>
       {Array.from({ length: padding }, (_, index) => (
-        <span key={`pad-${index}`} className="h-2 w-[9px] rounded-[3px] bg-line" />
+        <span key={`pad-${index}`} className="h-1.5 w-[7px] rounded-[2px] bg-line" />
       ))}
       {recent.map((reading, index) => (
         <span
           key={`${reading.recordedAt}-${index}`}
-          className={`h-2 w-[9px] rounded-[3px] ${reading.basis === 'usage' ? 'bg-ink-muted' : tone}`}
+          className={`h-1.5 w-[7px] rounded-[2px] ${reading.basis === 'usage' ? 'bg-ink-muted' : tone}`}
         />
       ))}
     </div>
@@ -78,17 +78,17 @@ export function ProviderCard({
   const Icon = health === 'ok' ? CheckIcon : health === 'error' ? CrossIcon : WarningIcon
 
   return (
-    <div className={`rounded-[12px] border p-4 ${style.card}`}>
-      <div className="flex items-center gap-2.5">
+    <div className={`rounded-[10px] border p-3.5 ${style.card}`}>
+      <div className="flex items-center gap-2">
         <span
-          className={`flex h-[18px] w-[18px] items-center justify-center rounded-[5px] ${
+          className={`flex h-[16px] w-[16px] items-center justify-center rounded-[4px] ${
             health === 'unknown' ? 'border border-line-strong bg-inset' : style.iconBox
           }`}
         >
           <Icon className={health === 'unknown' ? 'text-ink-muted' : 'text-[#0F1F1C]'} />
         </span>
 
-        <span className="text-[15px] font-medium">{provider.displayName}</span>
+        <span className="text-[13px] font-medium">{provider.displayName}</span>
 
         <button
           type="button"
@@ -98,8 +98,8 @@ export function ProviderCard({
           className="text-ink-muted transition hover:text-ink disabled:cursor-not-allowed disabled:opacity-30"
         >
           <svg
-            width="13"
-            height="13"
+            width="12"
+            height="12"
             viewBox="0 0 24 24"
             fill="none"
             stroke="currentColor"
@@ -115,13 +115,13 @@ export function ProviderCard({
         <Pill className={`ml-auto ${pill.className}`}>{pill.text}</Pill>
       </div>
 
-      <div className="mt-4 flex items-end justify-between gap-4">
+      <div className="mt-3 flex items-end justify-between gap-3">
         <div>
           <Label className="text-ink-muted">
             {provider.basis === 'usage' ? 'Spend so far' : 'Remaining'}
           </Label>
           <div
-            className={`num mt-1 text-[22px] leading-none font-semibold ${
+            className={`num mt-0.5 text-[18px] leading-none font-semibold ${
               tone === 'muted' ? 'text-ink-muted' : style.text
             }`}
           >
@@ -131,11 +131,11 @@ export function ProviderCard({
         <Ticks readings={readings} tone={style.dot} />
       </div>
 
-      <div className={`label-sm mt-3 ${tone === 'muted' ? 'text-ink-muted' : style.text}`}>
+      <div className={`label-sm mt-2 ${tone === 'muted' ? 'text-ink-muted' : style.text}`}>
         {basisLabel(provider.basis)}
       </div>
 
-      <div className="num mt-1.5 text-[12px] text-ink-dim">
+      <div className="num mt-1 text-[11px] text-ink-dim">
         {outcome && !outcome.ok ? (
           <span title={outcome.errorMessage ?? undefined}>{outcome.errorMessage}</span>
         ) : (
@@ -152,7 +152,7 @@ export function ProviderCard({
       </div>
 
       {outcome && !outcome.ok ? null : (
-        <div className="mt-2 flex items-center gap-1.5">
+        <div className="mt-1.5 flex items-center gap-1.5">
           <StatusDot tone={tone} />
           <span className="label-sm text-ink-muted">
             {provider.basis === 'account_credits' && provider.accountCredits !== null
