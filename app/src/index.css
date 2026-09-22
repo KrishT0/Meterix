@@ -62,6 +62,10 @@ body,
 
 body {
   background: var(--color-backdrop);
+  /* Tailwind's preflight leaves colour to the browser, which is black. Set it
+     here or every element without an explicit text-* utility renders black on
+     a near-black background. */
+  color: var(--color-ink);
   -webkit-font-smoothing: antialiased;
 }
 

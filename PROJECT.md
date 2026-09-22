@@ -143,6 +143,17 @@ installed somewhere read-only.
 
 ## Decisions worth knowing
 
+**The keychain needs an explicit backend feature, and this was a real bug.**
+`keyring` has no default features, and when no platform backend is selected it
+silently falls back to an in-process mock store. That store accepts a write,
+returns success, and forgets the value when the process exits. A saved API key
+looked fine and was gone by the next launch, with no error anywhere. `Cargo.toml`
+now selects `windows-native`, `apple-native` or `sync-secret-service` per
+platform. On Linux `crypto-rust` is chosen over `crypto-openssl` so no OpenSSL
+dependency appears in the tree. `save_key` also reads the value back after
+writing, because a keychain that accepts a write and cannot return it is worse
+than one that refuses outright.
+
 **One name.** The product is Meterix. The core crate is `meterix-core`, the app
 crate is `meterix`, the keychain service and data directory are both
 `meterix-core`. Nothing was renamed after keys were stored, so no key was

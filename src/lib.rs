@@ -627,10 +627,26 @@ pub fn save_key(provider: &str, key: &str) -> Result<()> {
         ));
     }
 
-    Entry::new(KEYRING_SERVICE, provider)
-        .context("could not access the OS keychain")?
+    let entry =
+        Entry::new(KEYRING_SERVICE, provider).context("could not access the OS keychain")?;
+
+    entry
         .set_password(key)
         .context("could not save key to the OS keychain")?;
+
+    // A keychain that accepts a write and cannot read it back is worse than one
+    // that refuses outright, because the UI looks like it worked. Confirm the
+    // round trip here so the failure is reported where it happened instead of
+    // surfacing later as a refresh that finds no key.
+    let stored = entry
+        .get_password()
+        .context("the OS keychain accepted the key but could not read it back")?;
+
+    if stored != key {
+        return Err(anyhow!(
+            "the OS keychain stored a different value than the one provided"
+        ));
+    }
 
     Ok(())
 }

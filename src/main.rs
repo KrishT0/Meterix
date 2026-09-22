@@ -9,7 +9,7 @@ use std::env;
 use anyhow::{Context, Result, anyhow};
 
 use meterix_core::{
-    Balance, PROVIDERS, fetch_balances, history, open_database, save_key, save_snapshot,
+    Balance, PROVIDERS, fetch_balances, forget_key, history, open_database, save_key, save_snapshot,
 };
 
 const DEFAULT_HISTORY_LIMIT: usize = 20;
@@ -102,6 +102,15 @@ async fn main() -> Result<()> {
             Ok(())
         }
         "fetch" => fetch(args.get(2).map(String::as_str)).await,
+        "forget-key" => {
+            let provider = args
+                .get(2)
+                .context("usage: meterix-core forget-key <provider>")?;
+
+            forget_key(provider)?;
+            println!("key removed from the OS keychain");
+            Ok(())
+        }
         "history" => {
             let provider = args
                 .get(2)
@@ -115,7 +124,7 @@ async fn main() -> Result<()> {
         }
         _ => Err(anyhow!(
             "unknown command: {command}\n\
-             usage: meterix-core [fetch [provider] | history <provider> [limit] | set-key <provider> <key>]\n\
+             usage: meterix-core [fetch [provider] | history <provider> [limit] | set-key <provider> <key> | forget-key <provider>]\n\
              providers: {}",
             PROVIDERS.join(", ")
         )),

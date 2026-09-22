@@ -57,6 +57,7 @@ export default function App() {
   const [readings, setReadings] = useState<Record<string, SnapshotRow[]>>({})
   const [fatal, setFatal] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [saving, setSaving] = useState(false)
   const [ready, setReady] = useState(false)
   const [keyDraft, setKeyDraft] = useState('')
   const [chosen, setChosen] = useState<string | null>(null)
@@ -143,6 +144,16 @@ export default function App() {
     return row.configured && (health === 'low' || health === 'error')
   })
 
+  // Provider failures need somewhere to show even when nothing is configured.
+  // Otherwise a key that never got saved leaves the empty state sitting there
+  // saying nothing at all, which reads as a dead button.
+  const failed = Object.values(outcomes).filter((outcome) => {
+    if (outcome.ok) return false
+    // "no key set" is not worth shouting about before the user has added one.
+    const isConfigured = overview.find((row) => row.name === outcome.provider)?.configured
+    return !(outcome.errorKind === 'missing_credential' && isConfigured !== true)
+  })
+
   const series: Series[] = shown.map((row, index) => ({
     name: row.name,
     tone: index === 0 ? 'teal' : 'copper',
@@ -153,14 +164,17 @@ export default function App() {
     const trimmed = keyDraft.trim()
     if (!trimmed || busy || !active) return
 
+    setSaving(true)
     setBusy(true)
     try {
       await api.setKey(active, trimmed)
       setKeyDraft('')
+      setFatal(null)
       await refreshAll()
     } catch (error) {
       setFatal(String(error))
     } finally {
+      setSaving(false)
       setBusy(false)
     }
   }
@@ -215,6 +229,21 @@ export default function App() {
               <div className="rounded-[10px] border border-copper-dim/40 bg-copper-tint px-4 py-3">
                 <span className="label-sm text-copper">Could not reach the core</span>
                 <p className="num mt-1 text-[12px] text-ink-dim">{fatal}</p>
+              </div>
+            ) : null}
+
+            {failed.length > 0 ? (
+              <div className="rounded-[10px] border border-copper-dim/40 bg-copper-tint px-4 py-3">
+                <span className="label-sm text-copper">
+                  Could not read {failed.length === 1 ? 'a provider' : 'some providers'}
+                </span>
+                <ul className="mt-2 space-y-1">
+                  {failed.map((outcome) => (
+                    <li key={outcome.provider} className="num text-[12px] text-ink-dim">
+                      {outcome.provider}: {outcome.errorMessage}
+                    </li>
+                  ))}
+                </ul>
               </div>
             ) : null}
 
@@ -307,7 +336,7 @@ export default function App() {
                   disabled={busy || keyDraft.trim() === ''}
                   className="shrink-0 px-6"
                 >
-                  Save key
+                  {saving ? 'Saving…' : 'Save key'}
                 </Button>
               </div>
             ) : null}
@@ -369,10 +398,6 @@ export default function App() {
             </footer>
           ) : null}
         </div>
-
-        <p className="num py-5 text-center text-[11px] text-ink-muted">
-          polling on a timer and the tray icon come next
-        </p>
       </div>
     </div>
   )
