@@ -23,12 +23,16 @@ Windows, Mac and Linux at once. So: build it, own it, learn Rust doing it.
 |---|---|
 | Core | Rust |
 | Shell | Tauri v2 |
-| UI | React, TypeScript, Tailwind |
+| UI | React, TypeScript, Tailwind 4 |
 | Storage | SQLite via rusqlite, one local file |
 | Secrets | OS keychain via `keyring` |
 | HTTP | reqwest |
 | Scheduler | `tokio::time::interval` |
 | Packaging | Tauri bundler: `.dmg`, `.msi`, `.deb`, `.AppImage` |
+
+Type comes from Inter and JetBrains Mono, self-hosted through Fontsource rather
+than fetched from a CDN, because a desktop app should not depend on the network
+to look right.
 
 Rust is a deliberate choice rather than a means to an end. Ownership, async,
 `Result` and traits are the things this project is meant to teach.
@@ -45,10 +49,37 @@ Each step is meant to run before the next one starts.
 |---|---|---|
 | 1 | Provider trait, OpenRouter and CheaperInference adapters, CLI | done |
 | 2 | SQLite snapshots, keychain key storage | done |
-| 3 | React dashboard over Tauri commands | not started |
-| 4 | Background poller, tray icon, popover, autostart | not started |
+| 3 | React dashboard over Tauri commands | done |
+| 4 | Background poller, tray icon, popover, autostart | next |
 | 5 | Trend chart, per-provider threshold, OS notification | schema ready |
 | 6 | Settings, more providers, packaging | not started |
+
+## Layout
+
+```
+src/               the core: library plus a CLI front end
+app/               the desktop app
+  src/             React dashboard
+  src-tauri/       Tauri shell, the only place that knows about both sides
+mockup/index.html  the static design reference the app was built from
+```
+
+The core is a library with a thin CLI, and the Tauri shell is a third entry
+point over the same library. `app/src-tauri` declares its own empty workspace
+so it cannot disturb the core crate.
+
+## Running it
+
+```
+cd app
+npm install
+npm run tauri dev      # dev window against the live API
+npm run tauri build    # installers
+```
+
+The dashboard starts by reading whatever is already in the database, then
+refreshes from the providers if any key is configured. Keys are added in the
+app, and stored in the OS keychain rather than the database.
 
 ## Commands
 
@@ -112,6 +143,24 @@ installed somewhere read-only.
 
 ## Decisions worth knowing
 
+**The dashboard only plots readings that are balances.** Rows whose `basis` is
+`usage` hold spend, which climbs as the account empties. Drawing one on the
+same axis as a balance produces a chart that looks healthy while the money runs
+out. Those rows are filtered out of the chart and counted underneath it, and
+they show as grey ticks on a provider card rather than coloured ones.
+
+**Removing a provider deletes the key and keeps the readings.** Tidying up a
+key list should not silently destroy a history. Nothing reads the history of a
+provider that is gone, so it costs a few rows to leave it alone, and re-adding
+the key brings its chart back.
+
+**A failed fetch in one provider does not discard the others.** Each provider's
+error is reported on its own card and the rest still refresh.
+
+**Low is a hardcoded two dollars for now.** Real thresholds belong per provider,
+which needs a schema column. Until then one constant stands in and the header
+says which value is in use.
+
 **OpenRouter balance precedence is account credits, then key cap, then usage.**
 Credits are the real balance. A key cap is not the account balance, but it is
 still money the key can spend, so it outranks spend-so-far. Usage is last and
@@ -154,11 +203,16 @@ needs to branch.
 
 ## Known gaps
 
-- No README-level onboarding: what a new user does first is undefined.
-- Adding a provider is a CLI flag. There is no interactive flow.
-- Removing a provider does not exist, neither the keychain entry nor the rows.
-- Nothing surfaces "last checked", though the data is there.
+- No background polling yet, so balances only move when refresh is pressed.
+- No tray icon. The app is a window and nothing else.
+- Light mode is not built. The palette in `app/src/index.css` is dark only.
+- The window keeps its native title bar rather than the reference design's
+  custom one, so a Windows title bar sits above the app header.
+- No settings screen, despite a button for one in the mockup.
+- "Remove a provider" removes a key. Since the set of supported providers is
+  compiled in, that is all it can mean until providers are data.
 - A headless or minimal Linux install may have no Secret Service, so `keyring`
   will fail. Cross-platform is not free on that leg.
 - Schema migrations are `PRAGMA table_info` plus `ALTER TABLE`. Fine for a
   handful. Move to a `PRAGMA user_version` ladder once there are three or more.
+- The bundled CSP is off (`csp: null`). Worth tightening before packaging.

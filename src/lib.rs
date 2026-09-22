@@ -16,8 +16,8 @@ use async_trait::async_trait;
 use keyring::Entry;
 use reqwest::Client;
 use rusqlite::{Connection, params};
-use serde::Deserialize;
 use serde::de::DeserializeOwned;
+use serde::{Deserialize, Serialize};
 
 pub const KEYRING_SERVICE: &str = "meterix-core";
 pub const PROVIDERS: [&str; 2] = ["openrouter", "cheaperinference"];
@@ -36,7 +36,8 @@ const DB_PATH_ENV: &str = "METERIX_DB";
 /// Providers do not all expose a real balance, so `remaining` is only money
 /// left when this says so. Anything reading `remaining` should check this
 /// first, `history` included.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Basis {
     /// Account balance: credits bought minus credits used.
     AccountCredits,
@@ -81,7 +82,8 @@ impl Basis {
 }
 
 /// One provider's answer, before it is written down.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Balance {
     pub provider: &'static str,
     /// What `remaining` means. Check `basis.is_balance()` before showing
@@ -96,7 +98,8 @@ pub struct Balance {
 }
 
 /// One stored row of `balance_snapshots`.
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Snapshot {
     pub recorded_at: String,
     pub basis: Basis,
@@ -126,6 +129,21 @@ pub enum ProviderError {
     Unreachable(String),
     /// A response arrived but was unusable.
     BadResponse(String),
+}
+
+impl ProviderError {
+    /// Stable identifier for callers that branch on the failure, such as the
+    /// dashboard's error copy and the tray icon's colour. Never reword these
+    /// without changing the consumers.
+    pub fn kind(&self) -> &'static str {
+        match self {
+            ProviderError::MissingCredential(_) => "missing_credential",
+            ProviderError::Unauthorized => "unauthorized",
+            ProviderError::RateLimited => "rate_limited",
+            ProviderError::Unreachable(_) => "unreachable",
+            ProviderError::BadResponse(_) => "bad_response",
+        }
+    }
 }
 
 impl fmt::Display for ProviderError {
@@ -330,6 +348,26 @@ impl Provider for CheaperInference {
 ///
 /// The keychain wins, so a stale `set-key` value shadows the environment
 /// variable. Re-run `set-key` to replace it.
+/// The environment variable a provider's key can be supplied through.
+///
+/// A keychain entry wins over this, so a value here is a fallback rather than
+/// an override.
+fn env_var(provider: &str) -> Option<&'static str> {
+    match provider {
+        "openrouter" => Some("OPENROUTER_KEY"),
+        "cheaperinference" => Some("CHEAPERINFERENCE_KEY"),
+        _ => None,
+    }
+}
+
+/// Whether a key exists for this provider, without contacting the provider.
+///
+/// Used by the dashboard to decide between "not set up" and "set up but
+/// failing", which are different things to show a user.
+pub fn has_credential(provider: &str) -> bool {
+    env_var(provider).is_some_and(|env_name| credential(provider, env_name).is_ok())
+}
+
 fn credential(provider: &str, env_name: &str) -> Result<String, ProviderError> {
     if let Ok(entry) = Entry::new(KEYRING_SERVICE, provider)
         && let Ok(key) = entry.get_password()
@@ -341,14 +379,21 @@ fn credential(provider: &str, env_name: &str) -> Result<String, ProviderError> {
 }
 
 fn build_provider(name: &str, client: &Client) -> Result<Box<dyn Provider>, ProviderError> {
+    let env_name = env_var(name).ok_or_else(|| {
+        ProviderError::BadResponse(format!(
+            "unknown provider: {name}; use {}",
+            PROVIDERS.join(", ")
+        ))
+    })?;
+
     let provider: Box<dyn Provider> = match name {
         "openrouter" => Box::new(OpenRouter {
             client: client.clone(),
-            key: credential("openrouter", "OPENROUTER_KEY")?,
+            key: credential(name, env_name)?,
         }),
         "cheaperinference" => Box::new(CheaperInference {
             client: client.clone(),
-            key: credential("cheaperinference", "CHEAPERINFERENCE_KEY")?,
+            key: credential(name, env_name)?,
         }),
         _ => {
             return Err(ProviderError::BadResponse(format!(
@@ -590,6 +635,30 @@ pub fn save_key(provider: &str, key: &str) -> Result<()> {
     Ok(())
 }
 
+/// Delete a provider's key from the OS keychain.
+///
+/// Snapshots are deliberately left alone. Removing a provider should be
+/// reversible, and a database of readings is not something to drop because
+/// someone was tidying up their key list. Nothing reads a departed provider's
+/// history, so it costs a few rows to keep it.
+pub fn forget_key(provider: &str) -> Result<()> {
+    if !PROVIDERS.contains(&provider) {
+        return Err(anyhow!(
+            "unknown provider: {provider}; use {}",
+            PROVIDERS.join(", ")
+        ));
+    }
+
+    let Ok(entry) = Entry::new(KEYRING_SERVICE, provider) else {
+        return Ok(());
+    };
+
+    match entry.delete_credential() {
+        Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+        Err(error) => Err(error).context("could not remove the key from the OS keychain"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -771,5 +840,18 @@ mod tests {
     fn unknown_basis_text_reads_back_as_usage() {
         assert_eq!(Basis::from_db("something_new"), Basis::Usage);
         assert_eq!(Basis::from_db("key_cap"), Basis::KeyCap);
+    }
+
+    /// The value stored in the `basis` column and the value the UI receives
+    /// over IPC have to agree, because the chart filters on one and the labels
+    /// switch on the other.
+    #[test]
+    fn basis_serializes_exactly_as_it_is_stored() {
+        for basis in [Basis::AccountCredits, Basis::KeyCap, Basis::Usage] {
+            assert_eq!(
+                serde_json::to_value(basis).expect("serializes"),
+                serde_json::json!(basis.as_str())
+            );
+        }
     }
 }

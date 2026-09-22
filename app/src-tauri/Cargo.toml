@@ -1,0 +1,19 @@
+[package]
+name = "plexo-credits"
+version = "0.1.0"
+edition = "2024"
+description = "Tray app for tracking LLM API credit balances"
+publish = false
+
+# Its own workspace root on purpose. Without this the crate would be pulled
+# into the parent package's workspace, and the one thing this step must not do
+# is disturb the core crate that already works.
+[workspace]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+meterix-core = { path = "../.." }
+serde = { version = "1", features = ["derive"] }
+tauri = { version = "2", features = [] }

@@ -1,0 +1,79 @@
+@import 'tailwindcss';
+@import '@fontsource-variable/inter';
+@import '@fontsource-variable/jetbrains-mono';
+
+/* Design tokens measured off the Plexo screenshots. */
+@theme {
+  --font-sans: 'Inter Variable', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono Variable', ui-monospace, monospace;
+
+  --color-backdrop: #131312;
+  --color-surface: #1c1c1b;
+  --color-panel: #232322;
+  --color-inset: #1a1a19;
+  --color-line: #2e2e2c;
+  --color-line-strong: #3a3a37;
+
+  --color-ink: #e9e7e2;
+  --color-ink-dim: #a8a69e;
+  --color-ink-muted: #7a7871;
+
+  --color-amber: #e0a64b;
+  --color-amber-dim: #c8a24c;
+  --color-amber-line: #6a5220;
+  --color-amber-tint: #2e2418;
+
+  --color-teal: #4db6ac;
+  --color-teal-dim: #2f7d6e;
+  --color-teal-tint: #17332c;
+
+  --color-copper: #d08a5c;
+  --color-copper-dim: #c08159;
+  --color-copper-tint: #33241a;
+}
+
+/* The reference's signature: small uppercase tracked monospace for every
+   label, and monospace with tabular figures for every number.
+   Colour is left unset so a text-* utility on the element can win. */
+@utility label {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+@utility label-sm {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+@utility num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  background: var(--color-backdrop);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* A desktop window shouldn't look like a scroll container. */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: var(--color-inset);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-line-strong);
+  border-radius: 999px;
+}

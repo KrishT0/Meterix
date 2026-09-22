@@ -3,3 +3,9 @@
 
 # design references, temporary — remove this line if you want them tracked
 /reference
+
+# app build output
+/app/node_modules
+/app/dist
+/app/src-tauri/target
+/app/src-tauri/gen
