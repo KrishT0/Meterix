@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { listen } from '@tauri-apps/api/event'
 
 import { BalanceChart, type Series } from './components/BalanceChart'
 import { ProviderCard } from './components/ProviderCard'
@@ -112,6 +113,18 @@ export default function App() {
       }
     })()
   }, [load, refreshAll])
+
+  useEffect(() => {
+    // The poller runs on its own timer, and the tray menu can refresh too.
+    // Either way the database is the source of truth, so just read it again.
+    const stop = listen('balances-updated', () => {
+      void load().catch((error) => setFatal(String(error)))
+    })
+
+    return () => {
+      void stop.then((unlisten) => unlisten())
+    }
+  }, [load])
 
   const supported = overview.map((row) => row.name)
   const active = chosen ?? supported[0] ?? ''

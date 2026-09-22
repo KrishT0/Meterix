@@ -50,8 +50,8 @@ Each step is meant to run before the next one starts.
 | 1 | Provider trait, OpenRouter and CheaperInference adapters, CLI | done |
 | 2 | SQLite snapshots, keychain key storage | done |
 | 3 | React dashboard over Tauri commands | done |
-| 4 | Background poller, tray icon, popover, autostart | next |
-| 5 | Trend chart, per-provider threshold, OS notification | schema ready |
+| 4 | Background poller, tray icon, popover | done, except autostart |
+| 5 | Trend chart, per-provider threshold, OS notification | chart done, thresholds and notifications pending |
 | 6 | Settings, more providers, packaging | not started |
 
 ## Layout
@@ -142,6 +142,22 @@ installed somewhere read-only.
 `METERIX_DB` overrides the whole path.
 
 ## Decisions worth knowing
+
+**Polling runs whether or not a window is open.** A background task refreshes
+every 30 minutes and the app does not exit when its windows close — closing the
+dashboard hides it, and only Quit in the tray menu actually stops the process.
+That is what makes it a watcher rather than a viewer, and it is why the chart
+and the burn rate have anything to plot at all.
+
+The poller, the tray menu and the Refresh button all go through one
+`refresh_and_store`, so they cannot disagree. Every refresh emits
+`balances-updated`, and windows re-read the database rather than being handed
+the payload, so there is one path for reading state.
+
+**The tray icon is drawn in code.** Four colours, one 32×32 three-bar mark
+rendered into an RGBA buffer per status, so there are no icon files to keep in
+step. It shows the worst status across the providers, because one failing
+provider deserves more attention than another one being healthy.
 
 **A key is checked before it replaces anything.** Saving verifies the candidate
 against the provider first, and the existing keychain entry is left untouched
@@ -272,14 +288,21 @@ can actually spend after reservations.
 
 ## Known gaps
 
-- No background polling yet, so balances only move when refresh is pressed.
-- No tray icon. The app is a window and nothing else.
-- Low balance is a hardcoded two dollars. Per-provider thresholds need a schema
-  column, and CheaperInference already reports its own `threshold_usd`.
+- Launch on system startup is not built, which is the last piece of v2.
+- The poll interval is fixed at 30 minutes. Making it configurable needs a
+  settings column and a settings screen.
+- The low threshold is two dollars, duplicated in Rust for the tray and in
+  TypeScript for the card tinting, because the tray has to colour itself with no
+  window open. Both go when thresholds become per-provider data.
 - Nothing records *which* key produced a snapshot, only which provider. Swapping
   an account mid-history splices two accounts into one trend line.
 - "Remove a provider" removes the keychain entry but not an environment
   variable, so a provider can stay configured after being removed.
+- The popover reads the database when it mounts and on every refresh event, not
+  when it is opened, so it can be up to one poll interval old if nothing else has
+  refreshed. It has a Refresh button for that.
+- No tray icon on Linux without an AppIndicator host, which is a desktop
+  environment question rather than a code one.
 - Light mode is not built. The palette in `app/src/index.css` is dark only.
 - The window keeps its native title bar rather than the reference design's
   custom one, so a Windows title bar sits above the app header.

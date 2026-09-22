@@ -16,4 +16,6 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 meterix-core = { path = "../.." }
 serde = { version = "1", features = ["derive"] }
-tauri = { version = "2", features = [] }
+tauri = { version = "2", features = ["tray-icon"] }
+# Only for the poller's sleep; the rest of the async runtime comes from Tauri.
+tokio = { version = "1", features = ["time"] }

@@ -21,6 +21,19 @@
         "resizable": true,
         "center": true,
         "backgroundColor": "#1C1C1B"
+      },
+      {
+        "label": "tray",
+        "title": "Meterix",
+        "width": 340,
+        "height": 420,
+        "resizable": false,
+        "decorations": false,
+        "transparent": false,
+        "visible": false,
+        "skipTaskbar": true,
+        "alwaysOnTop": true,
+        "backgroundColor": "#1C1C1B"
       }
     ],
     "security": {

@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Permissions for the dashboard window. It only talks to the app's own commands, so nothing beyond the core set is needed yet.",
-  "windows": ["main"],
-  "permissions": ["core:default"]
+  "description": "Permissions for both windows. They only talk to the app's own commands and to the poller's update event.",
+  "windows": ["main", "tray"],
+  "permissions": ["core:default", "core:event:default"]
 }
