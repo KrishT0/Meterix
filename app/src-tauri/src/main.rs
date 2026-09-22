@@ -12,7 +12,7 @@ use serde::Serialize;
 
 use meterix_core::{
     Basis, PROVIDERS, Snapshot, credential_hint, display_name, fetch_balances, forget_key, history,
-    open_database, save_key, save_snapshot,
+    open_database, save_snapshot, save_verified_key,
 };
 
 /// One provider, as the dashboard needs it: whether a key exists, and the most
@@ -139,9 +139,37 @@ fn snapshot_history(provider: String, limit: usize) -> Result<Vec<Snapshot>, Str
     history(&connection, &provider, limit).map_err(|error| error.to_string())
 }
 
+/// What happened when a key was offered for saving.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SaveKeyOutcome {
+    provider: String,
+    display_name: String,
+    /// "saved_verified", "saved_unverified" or "rejected".
+    status: String,
+    /// The balance the candidate returned, when it could read one.
+    balance: Option<f64>,
+    /// Why it was rejected, or why no balance could be read.
+    error_message: Option<String>,
+}
+
+/// Store an API key, but only after checking that it works.
+///
+/// All of the deciding happens in the core, so the CLI and this agree.
 #[tauri::command]
-fn set_key(provider: String, key: String) -> Result<(), String> {
-    save_key(&provider, &key).map_err(|error| error.to_string())
+async fn set_key(provider: String, key: String) -> Result<SaveKeyOutcome, String> {
+    let display = display_name(&provider).to_string();
+    let outcome = save_verified_key(&provider, &key)
+        .await
+        .map_err(|error| error.to_string())?;
+
+    Ok(SaveKeyOutcome {
+        provider,
+        display_name: display,
+        status: outcome.status().to_string(),
+        balance: outcome.balance(),
+        error_message: outcome.message().map(str::to_string),
+    })
 }
 
 /// Drops the keychain entry. Stored readings stay, so this is reversible.

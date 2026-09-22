@@ -14,7 +14,7 @@ import {
   healthOf,
   tones,
 } from './components/ui'
-import type { ProviderOverview, RefreshOutcome, SnapshotRow } from './lib/api'
+import type { ProviderOverview, RefreshOutcome, SaveKeyOutcome, SnapshotRow } from './lib/api'
 import * as api from './lib/api'
 import { amount, daySeconds, parseUtc, relativeTime, usd } from './lib/format'
 
@@ -59,6 +59,7 @@ export default function App() {
   const [fatal, setFatal] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [saveResult, setSaveResult] = useState<SaveKeyOutcome | null>(null)
   const [ready, setReady] = useState(false)
   const [keyDraft, setKeyDraft] = useState('')
   const [chosen, setChosen] = useState<string | null>(null)
@@ -180,7 +181,15 @@ export default function App() {
     setSaving(true)
     setBusy(true)
     try {
-      await api.setKey(active, trimmed)
+      const result = await api.setKey(active, trimmed)
+      setSaveResult(result)
+
+      if (result.status === 'rejected') {
+        // Nothing was written, so keep the draft for correcting rather than
+        // making it be retyped.
+        return
+      }
+
       setKeyDraft('')
       setFatal(null)
       await refreshAll()
@@ -319,7 +328,12 @@ export default function App() {
               <input
                 type="password"
                 value={keyDraft}
-                onChange={(event) => setKeyDraft(event.target.value)}
+                onChange={(event) => {
+                  setKeyDraft(event.target.value)
+                  // A message about the previous attempt is stale the moment
+                  // the field changes.
+                  setSaveResult(null)
+                }}
                 onKeyDown={(event) => {
                   if (event.key === 'Enter') void addProvider()
                 }}
@@ -346,6 +360,34 @@ export default function App() {
                 <>no key stored for {selected?.displayName ?? active}</>
               )}
             </div>
+
+            {saveResult ? (
+              <div
+                className={`num w-full pl-1 text-[11px] ${
+                  saveResult.status === 'rejected'
+                    ? 'text-copper'
+                    : saveResult.status === 'saved_verified'
+                      ? 'text-teal'
+                      : 'text-amber-dim'
+                }`}
+              >
+                {saveResult.status === 'rejected' ? (
+                  <>
+                    not saved · {saveResult.displayName} refused this key.{' '}
+                    {saveResult.errorMessage} The stored key is unchanged.
+                  </>
+                ) : saveResult.status === 'saved_verified' ? (
+                  <>
+                    saved · {saveResult.displayName} reports{' '}
+                    {usd(saveResult.balance)}
+                  </>
+                ) : (
+                  <>
+                    saved, but no balance could be read · {saveResult.errorMessage}
+                  </>
+                )}
+              </div>
+            ) : null}
           </div>
         ) : null}
 

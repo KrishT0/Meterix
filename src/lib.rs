@@ -406,10 +406,6 @@ impl Provider for CheaperInference {
     }
 }
 
-/// Read a provider's key from the OS keychain, then the environment.
-///
-/// The keychain wins, so a stale `set-key` value shadows the environment
-/// variable. Re-run `set-key` to replace it.
 /// Static facts about a supported provider, kept in one place so the pieces
 /// cannot drift apart.
 struct ProviderSpec {
@@ -418,6 +414,10 @@ struct ProviderSpec {
     display_name: &'static str,
     /// Environment variable its key can be supplied through.
     env_var: &'static str,
+    /// What a key for this provider starts with. Only ever used to notice a key
+    /// filed under the wrong provider, so a provider changing its format
+    /// degrades the hint rather than breaking anything.
+    key_prefix: &'static str,
 }
 
 fn spec(provider: &str) -> Option<ProviderSpec> {
@@ -425,10 +425,12 @@ fn spec(provider: &str) -> Option<ProviderSpec> {
         "openrouter" => Some(ProviderSpec {
             display_name: "OpenRouter",
             env_var: "OPENROUTER_KEY",
+            key_prefix: "sk-or-",
         }),
         "cheaperinference" => Some(ProviderSpec {
             display_name: "CheaperInference",
             env_var: "CHEAPERINFERENCE_KEY",
+            key_prefix: "ci_",
         }),
         _ => None,
     }
@@ -472,6 +474,162 @@ fn mask_key(key: &str) -> String {
     format!("{head}\u{2026}{tail}")
 }
 
+/// Which provider a key's format belongs to, if any.
+///
+/// Advisory only. Prefixes are the providers' conventions rather than a
+/// contract, so this is never allowed to decide anything on its own.
+pub fn provider_for_key(key: &str) -> Option<&'static str> {
+    PROVIDERS
+        .iter()
+        .copied()
+        .find(|provider| spec(provider).is_some_and(|spec| key.starts_with(spec.key_prefix)))
+}
+
+/// When a key is refused by one provider but its format belongs to another,
+/// say so.
+///
+/// A key filed under the wrong provider comes back as rejected, which sends
+/// someone off to check a key that was perfectly good.
+pub fn misdirected_key_hint(selected: &str, key: &str) -> Option<String> {
+    let other = provider_for_key(key)?;
+    if other == selected {
+        return None;
+    }
+
+    Some(format!(
+        "It starts with `{}`, the {} format, so check which provider is selected.",
+        spec(other)?.key_prefix,
+        display_name(other)
+    ))
+}
+
+fn unknown_provider(name: &str) -> ProviderError {
+    ProviderError::BadResponse(format!(
+        "unknown provider: {name}; use {}",
+        PROVIDERS.join(", ")
+    ))
+}
+
+/// Build a provider that reads its key from the given source, rather than from
+/// whatever is stored.
+fn provider_with_key(name: &str, client: &Client, key: String) -> Option<Box<dyn Provider>> {
+    match name {
+        "openrouter" => Some(Box::new(OpenRouter {
+            client: client.clone(),
+            key,
+        })),
+        "cheaperinference" => Some(Box::new(CheaperInference {
+            client: client.clone(),
+            key,
+        })),
+        _ => None,
+    }
+}
+
+/// Read a candidate key's balance without storing it.
+///
+/// Called before replacing a stored key, so a typo cannot destroy a working
+/// one. Nothing here touches the keychain.
+pub async fn verify_key(provider: &str, key: &str) -> Result<Balance, ProviderError> {
+    // ponytail: panics on a broken TLS setup, matching fetch_balances.
+    let client = Client::new();
+    let candidate = provider_with_key(provider, &client, key.to_string())
+        .ok_or_else(|| unknown_provider(provider))?;
+
+    candidate.fetch_balance().await
+}
+
+/// What came of offering a key for saving.
+pub enum SaveOutcome {
+    /// The key works and a balance was read. Stored.
+    Verified(Balance),
+    /// The key was stored, but no balance could be read from it.
+    SavedUnverified(String),
+    /// The provider refused the key. **Nothing was written.**
+    Rejected(String),
+}
+
+impl SaveOutcome {
+    /// Stable identifier for callers that render the result.
+    pub fn status(&self) -> &'static str {
+        match self {
+            SaveOutcome::Verified(_) => "saved_verified",
+            SaveOutcome::SavedUnverified(_) => "saved_unverified",
+            SaveOutcome::Rejected(_) => "rejected",
+        }
+    }
+
+    pub fn balance(&self) -> Option<f64> {
+        match self {
+            SaveOutcome::Verified(balance) => Some(balance.remaining),
+            _ => None,
+        }
+    }
+
+    pub fn message(&self) -> Option<&str> {
+        match self {
+            SaveOutcome::Verified(_) => None,
+            SaveOutcome::SavedUnverified(message) | SaveOutcome::Rejected(message) => Some(message),
+        }
+    }
+}
+
+/// Turn a lowercase fragment into a sentence, so fragments can be joined
+/// without producing "rejected It starts with".
+///
+/// Error `Display` strings are written to follow a colon, so they are lowercase
+/// and unpunctuated. Stitching those together needs this.
+fn as_sentence(fragment: &str) -> String {
+    let mut characters = fragment.chars();
+    let Some(first) = characters.next() else {
+        return String::new();
+    };
+
+    let mut sentence: String = first.to_uppercase().collect();
+    sentence.push_str(characters.as_str());
+
+    if !sentence.ends_with(['.', '!', '?']) {
+        sentence.push('.');
+    }
+
+    sentence
+}
+
+/// Replace a provider's stored key, but only after checking the candidate.
+///
+/// The existing keychain entry is left untouched until the candidate has proved
+/// itself, so a typo cannot destroy a working key. A key the provider actively
+/// refuses is the one case that writes nothing.
+pub async fn save_verified_key(provider: &str, key: &str) -> Result<SaveOutcome> {
+    // A provider that is merely unreachable has not said the key is wrong, so
+    // refusing to save would leave someone offline unable to set a key at all.
+    match verify_key(provider, key).await {
+        Ok(balance) => {
+            save_key(provider, key)?;
+            Ok(SaveOutcome::Verified(balance))
+        }
+
+        Err(error) if error.kind() != "unauthorized" => {
+            save_key(provider, key)?;
+            Ok(SaveOutcome::SavedUnverified(error.to_string()))
+        }
+
+        Err(error) => {
+            let mut message = as_sentence(&error.to_string());
+            if let Some(hint) = misdirected_key_hint(provider, key) {
+                message.push(' ');
+                message.push_str(&hint);
+            }
+
+            Ok(SaveOutcome::Rejected(message))
+        }
+    }
+}
+
+/// Read a provider's key from the OS keychain, then the environment.
+///
+/// The keychain wins, so a stale `set-key` value shadows the environment
+/// variable. Re-run `set-key` to replace it.
 fn credential(provider: &str, env_name: &str) -> Result<String, ProviderError> {
     if let Ok(entry) = Entry::new(KEYRING_SERVICE, provider)
         && let Ok(key) = entry.get_password()
@@ -483,31 +641,10 @@ fn credential(provider: &str, env_name: &str) -> Result<String, ProviderError> {
 }
 
 fn build_provider(name: &str, client: &Client) -> Result<Box<dyn Provider>, ProviderError> {
-    let env_name = env_var(name).ok_or_else(|| {
-        ProviderError::BadResponse(format!(
-            "unknown provider: {name}; use {}",
-            PROVIDERS.join(", ")
-        ))
-    })?;
+    let env_name = env_var(name).ok_or_else(|| unknown_provider(name))?;
+    let key = credential(name, env_name)?;
 
-    let provider: Box<dyn Provider> = match name {
-        "openrouter" => Box::new(OpenRouter {
-            client: client.clone(),
-            key: credential(name, env_name)?,
-        }),
-        "cheaperinference" => Box::new(CheaperInference {
-            client: client.clone(),
-            key: credential(name, env_name)?,
-        }),
-        _ => {
-            return Err(ProviderError::BadResponse(format!(
-                "unknown provider: {name}; use {}",
-                PROVIDERS.join(", ")
-            )));
-        }
-    };
-
-    Ok(provider)
+    provider_with_key(name, client, key).ok_or_else(|| unknown_provider(name))
 }
 
 /// One provider's result. `Err` is per-provider, so one failure does not hide
@@ -1033,6 +1170,59 @@ mod tests {
         // Too short to show anything without giving it away.
         assert_eq!(mask_key("ci_short"), "••••••••");
         assert_eq!(mask_key(""), "••••••••");
+    }
+
+    #[test]
+    fn a_key_is_recognised_by_its_format_prefix() {
+        assert_eq!(provider_for_key("sk-or-v1-abc"), Some("openrouter"));
+        assert_eq!(provider_for_key("ci_live_abc"), Some("cheaperinference"));
+        assert_eq!(provider_for_key("something-else"), None);
+    }
+
+    #[test]
+    fn a_misfiled_key_is_pointed_at_the_right_provider() {
+        // The case that actually happened: a CheaperInference key pasted while
+        // OpenRouter was selected, which comes back as "rejected".
+        let hint = misdirected_key_hint("openrouter", "ci_live_abc").expect("a hint");
+        assert!(hint.contains("CheaperInference"), "{hint}");
+
+        // Correctly filed, so there is nothing to say.
+        assert!(misdirected_key_hint("openrouter", "sk-or-v1-abc").is_none());
+        // Unrecognised format, so nothing to say either.
+        assert!(misdirected_key_hint("openrouter", "nonsense").is_none());
+    }
+
+    #[test]
+    fn fragments_join_into_sentences() {
+        assert_eq!(
+            as_sentence("the API key was rejected"),
+            "The API key was rejected."
+        );
+        // Already punctuated, so it is left alone.
+        assert_eq!(as_sentence("it failed."), "It failed.");
+        assert_eq!(as_sentence(""), "");
+    }
+
+    #[test]
+    fn save_statuses_are_stable_identifiers() {
+        let balance = balance(Basis::AccountCredits, 6.4, Some(6.4), Some(3.6));
+
+        assert_eq!(
+            SaveOutcome::Verified(balance.clone()).status(),
+            "saved_verified"
+        );
+        assert_eq!(SaveOutcome::Verified(balance).balance(), Some(6.4));
+
+        let unverified = SaveOutcome::SavedUnverified("offline".to_string());
+        assert_eq!(unverified.status(), "saved_unverified");
+        assert_eq!(unverified.balance(), None);
+        assert_eq!(unverified.message(), Some("offline"));
+
+        let rejected = SaveOutcome::Rejected("refused".to_string());
+        assert_eq!(rejected.status(), "rejected");
+        assert_eq!(rejected.balance(), None);
+        // A stored key is only ever left alone in this case.
+        assert_eq!(rejected.message(), Some("refused"));
     }
 
     #[test]

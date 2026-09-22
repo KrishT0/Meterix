@@ -51,6 +51,20 @@ export interface SnapshotRow {
   remaining: number
 }
 
+/** What happened when a key was offered for saving. */
+export interface SaveKeyOutcome {
+  provider: string
+  displayName: string
+  /**
+   * `saved_verified` — the key works and a balance was read.
+   * `saved_unverified` — saved, but no balance could be read.
+   * `rejected` — the provider refused it, and nothing was written.
+   */
+  status: 'saved_verified' | 'saved_unverified' | 'rejected'
+  balance: number | null
+  errorMessage: string | null
+}
+
 /** Supported providers, and the latest stored reading for each. */
 export const overview = () => invoke<ProviderOverview[]>('overview')
 
@@ -61,8 +75,14 @@ export const refresh = (only?: string) =>
 export const snapshotHistory = (provider: string, limit: number) =>
   invoke<SnapshotRow[]>('snapshot_history', { provider, limit })
 
+/**
+ * Verify a key and, only if it works, replace the stored one.
+ *
+ * Resolves with an outcome rather than throwing: a rejected key is an expected
+ * result, not a failure of the call.
+ */
 export const setKey = (provider: string, key: string) =>
-  invoke<void>('set_key', { provider, key })
+  invoke<SaveKeyOutcome>('set_key', { provider, key })
 
 export const removeProvider = (provider: string) =>
   invoke<void>('remove_provider', { provider })

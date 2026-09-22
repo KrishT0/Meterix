@@ -9,8 +9,8 @@ use std::env;
 use anyhow::{Context, Result, anyhow};
 
 use meterix_core::{
-    Balance, PROVIDERS, display_name, fetch_balances, forget_key, history, open_database, save_key,
-    save_snapshot,
+    Balance, PROVIDERS, SaveOutcome, display_name, fetch_balances, forget_key, history,
+    open_database, save_snapshot, save_verified_key,
 };
 
 const DEFAULT_HISTORY_LIMIT: usize = 20;
@@ -62,6 +62,31 @@ async fn fetch(only: Option<&str>) -> Result<()> {
     Ok(())
 }
 
+/// Check a key before storing it, so a typo cannot destroy a working one.
+async fn set_key(provider: &str, key: &str) -> Result<()> {
+    let name = display_name(provider);
+
+    match save_verified_key(provider, key).await? {
+        SaveOutcome::Verified(balance) => {
+            println!(
+                "key verified and stored · {name} reports {}",
+                amount(&balance)
+            );
+        }
+        SaveOutcome::SavedUnverified(reason) => {
+            println!("key stored, but no balance could be read · {reason}");
+        }
+        SaveOutcome::Rejected(reason) => {
+            // Non-zero so a script notices, and the reason the provider gave.
+            return Err(anyhow!(
+                "not saved · {name} refused this key. {reason} The stored key is unchanged."
+            ));
+        }
+    }
+
+    Ok(())
+}
+
 fn show_history(provider: &str, limit: usize) -> Result<()> {
     let connection = open_database()?;
 
@@ -104,9 +129,7 @@ async fn main() -> Result<()> {
                 .get(3)
                 .context("usage: meterix-core set-key <provider> <key>")?;
 
-            save_key(provider, key)?;
-            println!("key saved to the OS keychain");
-            Ok(())
+            set_key(provider, key).await
         }
         "fetch" => fetch(args.get(2).map(String::as_str)).await,
         "forget-key" => {

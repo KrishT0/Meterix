@@ -143,6 +143,25 @@ installed somewhere read-only.
 
 ## Decisions worth knowing
 
+**A key is checked before it replaces anything.** Saving verifies the candidate
+against the provider first, and the existing keychain entry is left untouched
+until it passes. A provider that refuses the credential (401) writes nothing at
+all, so a typo cannot destroy a working key. A provider that merely cannot be
+reached does **not** block the save, because the key is not known to be wrong and
+refusing would leave someone offline unable to set one.
+
+Three outcomes, and the difference matters: `saved_verified` (works, balance
+read), `saved_unverified` (stored, no balance readable), `rejected` (nothing
+written). The decision lives in `save_verified_key` in the core so the CLI and
+the app cannot disagree about it.
+
+**A key filed under the wrong provider is called out.** Refusing a key that
+belongs to another provider produces a bare "rejected", which sends someone to
+check a key that was fine. `key_prefix` in the `ProviderSpec` table drives a
+hint: "It starts with `ci_`, the CheaperInference format, so check which provider
+is selected." Prefixes are conventions, not contracts, so this only ever
+produces a hint and never decides anything.
+
 **The keychain needs an explicit backend feature, and this was a real bug.**
 `keyring` has no default features, and when no platform backend is selected it
 silently falls back to an in-process mock store. That store accepts a write,
@@ -255,6 +274,12 @@ can actually spend after reservations.
 
 - No background polling yet, so balances only move when refresh is pressed.
 - No tray icon. The app is a window and nothing else.
+- Low balance is a hardcoded two dollars. Per-provider thresholds need a schema
+  column, and CheaperInference already reports its own `threshold_usd`.
+- Nothing records *which* key produced a snapshot, only which provider. Swapping
+  an account mid-history splices two accounts into one trend line.
+- "Remove a provider" removes the keychain entry but not an environment
+  variable, so a provider can stay configured after being removed.
 - Light mode is not built. The palette in `app/src/index.css` is dark only.
 - The window keeps its native title bar rather than the reference design's
   custom one, so a Windows title bar sits above the app header.
