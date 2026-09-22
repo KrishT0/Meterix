@@ -9,7 +9,8 @@ use std::env;
 use anyhow::{Context, Result, anyhow};
 
 use meterix_core::{
-    Balance, PROVIDERS, fetch_balances, forget_key, history, open_database, save_key, save_snapshot,
+    Balance, PROVIDERS, display_name, fetch_balances, forget_key, history, open_database, save_key,
+    save_snapshot,
 };
 
 const DEFAULT_HISTORY_LIMIT: usize = 20;
@@ -39,7 +40,7 @@ async fn fetch(only: Option<&str>) -> Result<()> {
             Ok(balance) => {
                 println!(
                     "{:<17}  {:>12}  {}",
-                    name,
+                    display_name(name),
                     amount(balance),
                     balance.basis.label()
                 );

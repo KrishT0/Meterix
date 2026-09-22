@@ -410,24 +410,66 @@ impl Provider for CheaperInference {
 ///
 /// The keychain wins, so a stale `set-key` value shadows the environment
 /// variable. Re-run `set-key` to replace it.
+/// Static facts about a supported provider, kept in one place so the pieces
+/// cannot drift apart.
+struct ProviderSpec {
+    /// How the provider is written for a person. Not the id: capitalising
+    /// "cheaperinference" with CSS loses the internal capital.
+    display_name: &'static str,
+    /// Environment variable its key can be supplied through.
+    env_var: &'static str,
+}
+
+fn spec(provider: &str) -> Option<ProviderSpec> {
+    match provider {
+        "openrouter" => Some(ProviderSpec {
+            display_name: "OpenRouter",
+            env_var: "OPENROUTER_KEY",
+        }),
+        "cheaperinference" => Some(ProviderSpec {
+            display_name: "CheaperInference",
+            env_var: "CHEAPERINFERENCE_KEY",
+        }),
+        _ => None,
+    }
+}
+
 /// The environment variable a provider's key can be supplied through.
 ///
 /// A keychain entry wins over this, so a value here is a fallback rather than
 /// an override.
 fn env_var(provider: &str) -> Option<&'static str> {
-    match provider {
-        "openrouter" => Some("OPENROUTER_KEY"),
-        "cheaperinference" => Some("CHEAPERINFERENCE_KEY"),
-        _ => None,
-    }
+    spec(provider).map(|spec| spec.env_var)
 }
 
-/// Whether a key exists for this provider, without contacting the provider.
+/// The provider's name as it should appear to a person.
 ///
-/// Used by the dashboard to decide between "not set up" and "set up but
-/// failing", which are different things to show a user.
-pub fn has_credential(provider: &str) -> bool {
-    env_var(provider).is_some_and(|env_name| credential(provider, env_name).is_ok())
+/// An unrecognised provider is returned unchanged rather than blanked, so a
+/// missing entry shows up as itself instead of as nothing.
+pub fn display_name(provider: &str) -> &str {
+    spec(provider).map_or(provider, |spec| spec.display_name)
+}
+
+/// A short, safe way to say *which* key is stored: its format prefix and its
+/// last four characters.
+///
+/// Enough to tell two keys apart, and to notice one filed under the wrong
+/// provider, without putting the secret on screen.
+pub fn credential_hint(provider: &str) -> Option<String> {
+    let key = credential(provider, env_var(provider)?).ok()?;
+    Some(mask_key(&key))
+}
+
+fn mask_key(key: &str) -> String {
+    let characters: Vec<char> = key.chars().collect();
+
+    if characters.len() <= 12 {
+        return "\u{2022}".repeat(8);
+    }
+
+    let head: String = characters[..8].iter().collect();
+    let tail: String = characters[characters.len() - 4..].iter().collect();
+    format!("{head}\u{2026}{tail}")
 }
 
 fn credential(provider: &str, env_name: &str) -> Result<String, ProviderError> {
@@ -974,6 +1016,23 @@ mod tests {
         let rows = history(&connection, "openrouter", 1).expect("history");
         assert_eq!(rows[0].usage, Some(3.6));
         assert_eq!(rows[0].spend_window_days, None);
+    }
+
+    #[test]
+    fn display_names_keep_their_internal_capitals() {
+        assert_eq!(display_name("openrouter"), "OpenRouter");
+        assert_eq!(display_name("cheaperinference"), "CheaperInference");
+        // Unknown providers come back unchanged rather than disappearing.
+        assert_eq!(display_name("something"), "something");
+    }
+
+    #[test]
+    fn a_key_hint_shows_the_format_and_the_last_four_only() {
+        assert_eq!(mask_key("sk-or-v1-0123456789abcdef3f2a"), "sk-or-v1…3f2a");
+        assert_eq!(mask_key("ci_abcdef123456"), "ci_abcde…3456");
+        // Too short to show anything without giving it away.
+        assert_eq!(mask_key("ci_short"), "••••••••");
+        assert_eq!(mask_key(""), "••••••••");
     }
 
     #[test]

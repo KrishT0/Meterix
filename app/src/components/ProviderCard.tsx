@@ -88,7 +88,7 @@ export function ProviderCard({
           <Icon className={health === 'unknown' ? 'text-ink-muted' : 'text-[#0F1F1C]'} />
         </span>
 
-        <span className="text-[15px] font-medium capitalize">{provider.name}</span>
+        <span className="text-[15px] font-medium">{provider.displayName}</span>
 
         <button
           type="button"

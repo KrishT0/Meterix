@@ -13,8 +13,13 @@ export type ErrorKind =
   | 'bad_response'
 
 export interface ProviderOverview {
+  /** The id, as used in the database and on the command line. */
   name: string
+  /** How the provider is written for a person. */
+  displayName: string
   configured: boolean
+  /** The stored key's format prefix and last four characters, if there is one. */
+  keyHint: string | null
   balance: number | null
   basis: Basis | null
   accountCredits: number | null
@@ -26,6 +31,7 @@ export interface ProviderOverview {
 
 export interface RefreshOutcome {
   provider: string
+  displayName: string
   ok: boolean
   balance: number | null
   basis: Basis | null

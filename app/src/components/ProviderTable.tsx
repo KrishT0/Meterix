@@ -35,7 +35,7 @@ export function ProviderTable({
           >
             <span className="flex items-center gap-2.5">
               <StatusDot tone={tone} />
-              <span className="num text-[13px] capitalize">{provider.name}</span>
+              <span className="num text-[13px]">{provider.displayName}</span>
             </span>
 
             <span

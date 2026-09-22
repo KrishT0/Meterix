@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { BalanceChart, type Series } from './components/BalanceChart'
 import { ProviderCard } from './components/ProviderCard'
+import { ProviderPicker } from './components/ProviderPicker'
 import { ProviderTable } from './components/ProviderTable'
 import {
   Button,
@@ -141,8 +142,15 @@ export default function App() {
     .at(-1)
 
   const healths = overview.map((row) => healthOf(row, outcomes[row.name]))
-  const overallTone =
-    healths.includes('error') ? 'copper' : healths.includes('low') ? 'amber' : 'teal'
+  // Teal means "checked and fine". With nothing configured, or nothing read
+  // yet, there is no such claim to make, so the pill stays neutral.
+  const overallTone = healths.includes('error')
+    ? 'copper'
+    : healths.includes('low')
+      ? 'amber'
+      : healths.includes('ok')
+        ? 'teal'
+        : 'muted'
   const problems = overview.filter((row) => {
     const health = healthOf(row, outcomes[row.name])
     return row.configured && (health === 'low' || health === 'error')
@@ -158,6 +166,7 @@ export default function App() {
     return !(outcome.errorKind === 'missing_credential' && isConfigured !== true)
   })
 
+  const selected = overview.find((row) => row.name === active)
   const series: Series[] = shown.map((row, index) => ({
     name: row.name,
     tone: index === 0 ? 'teal' : 'copper',
@@ -244,7 +253,7 @@ export default function App() {
             <ul className="mt-2 space-y-1">
               {failed.map((outcome) => (
                 <li key={outcome.provider} className="num text-[12px] text-ink-dim">
-                  {outcome.provider}: {outcome.errorMessage}
+                  {outcome.displayName}: {outcome.errorMessage}
                 </li>
               ))}
             </ul>
@@ -317,22 +326,7 @@ export default function App() {
                 placeholder="paste an api key"
                 className="num min-w-0 flex-1 bg-transparent text-[13px] text-ink outline-none placeholder:text-ink-muted"
               />
-              <div className="flex items-center gap-1.5">
-                {supported.map((name) => (
-                  <button
-                    key={name}
-                    type="button"
-                    onClick={() => setChosen(name)}
-                    className={`label-sm rounded-md border px-2 py-1 transition ${
-                      name === active
-                        ? 'border-amber bg-amber text-[#1A1408]'
-                        : 'border-line-strong text-ink-dim hover:border-ink-muted'
-                    }`}
-                  >
-                    {name}
-                  </button>
-                ))}
-              </div>
+              <ProviderPicker providers={overview} value={active} onChange={setChosen} />
             </div>
             <Button
               variant="primary"
@@ -342,6 +336,16 @@ export default function App() {
             >
               {saving ? 'Saving…' : 'Save key'}
             </Button>
+            <div className="num w-full pl-1 text-[11px] text-ink-muted">
+              {selected?.keyHint ? (
+                <>
+                  stored for {selected.displayName}:{' '}
+                  <span className="text-ink-dim">{selected.keyHint}</span>
+                </>
+              ) : (
+                <>no key stored for {selected?.displayName ?? active}</>
+              )}
+            </div>
           </div>
         ) : null}
 

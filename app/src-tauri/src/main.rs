@@ -11,8 +11,8 @@
 use serde::Serialize;
 
 use meterix_core::{
-    Basis, PROVIDERS, Snapshot, fetch_balances, forget_key, has_credential, history, open_database,
-    save_key, save_snapshot,
+    Basis, PROVIDERS, Snapshot, credential_hint, display_name, fetch_balances, forget_key, history,
+    open_database, save_key, save_snapshot,
 };
 
 /// One provider, as the dashboard needs it: whether a key exists, and the most
@@ -20,8 +20,13 @@ use meterix_core::{
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ProviderOverview {
+    /// The id, as used in the database and on the command line.
     name: String,
+    /// How the provider is written for a person.
+    display_name: String,
     configured: bool,
+    /// The stored key's format prefix and last four characters, if there is one.
+    key_hint: Option<String>,
     balance: Option<f64>,
     basis: Option<Basis>,
     account_credits: Option<f64>,
@@ -37,6 +42,7 @@ struct ProviderOverview {
 #[serde(rename_all = "camelCase")]
 struct RefreshOutcome {
     provider: String,
+    display_name: String,
     ok: bool,
     balance: Option<f64>,
     basis: Option<Basis>,
@@ -59,9 +65,15 @@ fn overview() -> Result<Vec<ProviderOverview>, String> {
                 .into_iter()
                 .next();
 
+            // One keychain read rather than two: the hint answers both "what is
+            // stored" and "is anything stored".
+            let hint = credential_hint(name);
+
             Ok(ProviderOverview {
                 name: (*name).to_string(),
-                configured: has_credential(name),
+                display_name: display_name(name).to_string(),
+                configured: hint.is_some(),
+                key_hint: hint,
                 balance: latest.as_ref().map(|snapshot| snapshot.remaining),
                 basis: latest.as_ref().map(|snapshot| snapshot.basis),
                 account_credits: latest.as_ref().and_then(|snapshot| snapshot.account_credits),
@@ -92,6 +104,7 @@ async fn refresh(only: Option<String>) -> Result<Vec<RefreshOutcome>, String> {
 
                 rows.push(RefreshOutcome {
                     provider: provider.to_string(),
+                    display_name: display_name(provider).to_string(),
                     ok: true,
                     balance: Some(balance.remaining),
                     basis: Some(balance.basis),
@@ -104,6 +117,7 @@ async fn refresh(only: Option<String>) -> Result<Vec<RefreshOutcome>, String> {
             }
             Err(error) => rows.push(RefreshOutcome {
                 provider: provider.to_string(),
+                display_name: display_name(provider).to_string(),
                 ok: false,
                 balance: None,
                 basis: None,
