@@ -93,8 +93,12 @@ pub struct Balance {
     pub remaining: f64,
     /// Account balance from the provider's credits endpoint, when readable.
     pub account_credits: Option<f64>,
-    /// Spend so far on this credential, when the provider reports it.
+    /// Spend on this credential, when the provider reports it.
     pub usage: Option<f64>,
+    /// How many days `usage` covers. `None` means all-time, which is how
+    /// OpenRouter reports it. `Some(n)` means the last n days, which is the
+    /// only thing CheaperInference offers. Never add the two together.
+    pub spend_window_days: Option<u32>,
 }
 
 /// One stored row of `balance_snapshots`.
@@ -105,6 +109,7 @@ pub struct Snapshot {
     pub basis: Basis,
     pub account_credits: Option<f64>,
     pub usage: Option<f64>,
+    pub spend_window_days: Option<u32>,
     pub remaining: f64,
 }
 
@@ -208,6 +213,32 @@ fn provider_error(url: &str, status: StatusCode, body: &str) -> ProviderError {
     }
 }
 
+/// GET a JSON document with a bearer token, mapping anything that goes wrong
+/// onto [`ProviderError`].
+async fn fetch_json<T: DeserializeOwned>(
+    client: &Client,
+    key: &str,
+    url: &str,
+) -> Result<T, ProviderError> {
+    let response = client
+        .get(url)
+        .bearer_auth(key)
+        .send()
+        .await
+        .map_err(|error| ProviderError::Unreachable(error.to_string()))?;
+
+    let status = response.status();
+    if !status.is_success() {
+        let body = response.text().await.unwrap_or_default();
+        return Err(provider_error(url, status, &body));
+    }
+
+    response
+        .json::<T>()
+        .await
+        .map_err(|error| ProviderError::BadResponse(error.to_string()))
+}
+
 // ---------------------------------------------------------------------------
 // Providers
 // ---------------------------------------------------------------------------
@@ -279,30 +310,9 @@ fn openrouter_balance(
         remaining,
         account_credits,
         usage: key_info.usage,
+        // OpenRouter's usage is a running total, not a window.
+        spend_window_days: None,
     })
-}
-
-impl OpenRouter {
-    async fn get_json<T: DeserializeOwned>(&self, url: &str) -> Result<T, ProviderError> {
-        let response = self
-            .client
-            .get(url)
-            .bearer_auth(&self.key)
-            .send()
-            .await
-            .map_err(|error| ProviderError::Unreachable(error.to_string()))?;
-
-        let status = response.status();
-        if !status.is_success() {
-            let body = response.text().await.unwrap_or_default();
-            return Err(provider_error(url, status, &body));
-        }
-
-        response
-            .json::<T>()
-            .await
-            .map_err(|error| ProviderError::BadResponse(error.to_string()))
-    }
 }
 
 #[async_trait]
@@ -312,20 +322,23 @@ impl Provider for OpenRouter {
     }
 
     async fn fetch_balance(&self) -> Result<Balance, ProviderError> {
-        let key_info = self
-            .get_json::<OpenRouterResponse>(OPENROUTER_KEY_URL)
-            .await?
-            .data;
+        let key_info =
+            fetch_json::<OpenRouterResponse>(&self.client, &self.key, OPENROUTER_KEY_URL)
+                .await?
+                .data;
 
         // The real account balance. Read on every fetch even though the docs
         // say a management key is required: a personal key can read it too, and
         // the cost of guessing wrong in the other direction is losing the only
         // number this app exists to show.
-        let account_credits = self
-            .get_json::<OpenRouterCreditsResponse>(OPENROUTER_CREDITS_URL)
-            .await
-            .ok()
-            .map(|credits| credits.data.total_credits - credits.data.total_usage);
+        let account_credits = fetch_json::<OpenRouterCreditsResponse>(
+            &self.client,
+            &self.key,
+            OPENROUTER_CREDITS_URL,
+        )
+        .await
+        .ok()
+        .map(|credits| credits.data.total_credits - credits.data.total_usage);
 
         openrouter_balance(&key_info, account_credits)
     }
@@ -336,9 +349,24 @@ struct CheaperInference {
     key: String,
 }
 
+const CHEAPER_INFERENCE_BALANCE_URL: &str = "https://api.cheaperinference.com/v1/account/balance";
+/// Spend comes from a second endpoint and is always windowed. The API rejects
+/// anything wider than 90 days, so this is the widest view on offer.
+const CHEAPER_INFERENCE_USAGE_URL: &str =
+    "https://api.cheaperinference.com/v1/account/usage?days=90";
+
 #[derive(Debug, Deserialize)]
 struct CheaperInferenceResponse {
+    /// What the account can actually spend, after anything reserved.
     available_usd: f64,
+}
+
+#[derive(Debug, Deserialize)]
+struct CheaperInferenceUsage {
+    /// USD billed over the window.
+    billed_usd: f64,
+    /// Length of that window in days, as the API reports it back.
+    days: u32,
 }
 
 #[async_trait]
@@ -348,26 +376,22 @@ impl Provider for CheaperInference {
     }
 
     async fn fetch_balance(&self) -> Result<Balance, ProviderError> {
-        let url = "https://api.cheaperinference.com/v1/account/balance";
+        let response = fetch_json::<CheaperInferenceResponse>(
+            &self.client,
+            &self.key,
+            CHEAPER_INFERENCE_BALANCE_URL,
+        )
+        .await?;
 
-        let response = self
-            .client
-            .get(url)
-            .bearer_auth(&self.key)
-            .send()
-            .await
-            .map_err(|error| ProviderError::Unreachable(error.to_string()))?;
-
-        let status = response.status();
-        if !status.is_success() {
-            let body = response.text().await.unwrap_or_default();
-            return Err(provider_error(url, status, &body));
-        }
-
-        let response = response
-            .json::<CheaperInferenceResponse>()
-            .await
-            .map_err(|error| ProviderError::BadResponse(error.to_string()))?;
+        // Spend is a nice-to-have on top of the balance, so a failure here is
+        // not worth failing the whole reading over.
+        let spend = fetch_json::<CheaperInferenceUsage>(
+            &self.client,
+            &self.key,
+            CHEAPER_INFERENCE_USAGE_URL,
+        )
+        .await
+        .ok();
 
         // This endpoint reports an account balance directly, so the value is
         // both the balance and the credits figure.
@@ -376,7 +400,8 @@ impl Provider for CheaperInference {
             basis: Basis::AccountCredits,
             remaining: response.available_usd,
             account_credits: Some(response.available_usd),
-            usage: None,
+            usage: spend.as_ref().map(|usage| usage.billed_usd),
+            spend_window_days: spend.map(|usage| usage.days),
         })
     }
 }
@@ -566,6 +591,7 @@ fn initialize_database(connection: &Connection) -> Result<()> {
             basis TEXT NOT NULL,
             account_credits REAL,
             usage REAL,
+            spend_window_days INTEGER,
             recorded_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         );
         ",
@@ -573,6 +599,7 @@ fn initialize_database(connection: &Connection) -> Result<()> {
 
     add_column_if_missing(connection, "account_credits", "REAL")?;
     add_column_if_missing(connection, "usage", "REAL")?;
+    add_column_if_missing(connection, "spend_window_days", "INTEGER")?;
 
     if !column_exists(connection, "balance_snapshots", "basis")? {
         add_column_if_missing(connection, "basis", "TEXT NOT NULL DEFAULT 'usage'")?;
@@ -601,14 +628,16 @@ fn initialize_database(connection: &Connection) -> Result<()> {
 pub fn save_snapshot(connection: &Connection, balance: &Balance) -> Result<()> {
     let changed = connection.execute(
         "
-        INSERT INTO balance_snapshots (provider_id, remaining, basis, account_credits, usage)
-        SELECT id, ?1, ?2, ?3, ?4 FROM providers WHERE name = ?5
+        INSERT INTO balance_snapshots
+            (provider_id, remaining, basis, account_credits, usage, spend_window_days)
+        SELECT id, ?1, ?2, ?3, ?4, ?5 FROM providers WHERE name = ?6
         ",
         params![
             balance.remaining,
             balance.basis.as_str(),
             balance.account_credits,
             balance.usage,
+            balance.spend_window_days,
             balance.provider
         ],
     )?;
@@ -630,6 +659,7 @@ pub fn history(connection: &Connection, provider: &str, limit: usize) -> Result<
                balance_snapshots.basis,
                balance_snapshots.account_credits,
                balance_snapshots.usage,
+               balance_snapshots.spend_window_days,
                balance_snapshots.remaining
         FROM balance_snapshots
         JOIN providers ON providers.id = balance_snapshots.provider_id
@@ -647,7 +677,8 @@ pub fn history(connection: &Connection, provider: &str, limit: usize) -> Result<
             basis: Basis::from_db(&basis),
             account_credits: row.get(2)?,
             usage: row.get(3)?,
-            remaining: row.get(4)?,
+            spend_window_days: row.get(4)?,
+            remaining: row.get(5)?,
         })
     })?;
 
@@ -736,6 +767,7 @@ mod tests {
             remaining,
             account_credits: credits,
             usage,
+            spend_window_days: None,
         }
     }
 
@@ -815,6 +847,7 @@ mod tests {
                 remaining: 99.0,
                 account_credits: Some(99.0),
                 usage: None,
+                spend_window_days: None,
             },
         )
         .expect("saved");
@@ -915,6 +948,32 @@ mod tests {
         );
         assert!(!error.to_string().contains("DOCTYPE"));
         assert!(error.to_string().contains("answered HTTP 404"));
+    }
+
+    /// A windowed spend figure and an all-time one must stay tellable apart,
+    /// or the two get added together and the total means nothing.
+    #[test]
+    fn a_windowed_spend_keeps_its_window() {
+        let connection = memory_database();
+
+        let mut windowed = balance(Basis::AccountCredits, 13.51, Some(13.51), Some(1.49));
+        windowed.provider = "cheaperinference";
+        windowed.spend_window_days = Some(90);
+        save_snapshot(&connection, &windowed).expect("saved");
+
+        let rows = history(&connection, "cheaperinference", 1).expect("history");
+        assert_eq!(rows[0].usage, Some(1.49));
+        assert_eq!(rows[0].spend_window_days, Some(90));
+
+        save_snapshot(
+            &connection,
+            &balance(Basis::AccountCredits, 6.4, Some(6.4), Some(3.6)),
+        )
+        .expect("saved");
+
+        let rows = history(&connection, "openrouter", 1).expect("history");
+        assert_eq!(rows[0].usage, Some(3.6));
+        assert_eq!(rows[0].spend_window_days, None);
     }
 
     #[test]

@@ -232,6 +232,17 @@ balance** — it answers `403 insufficient_scope` asking for `account:read`.
 "the key is fine, the scope is missing" from "the key is wrong". A key needs the
 `account:read` scope for this provider to be trackable at all.
 
+Spend comes from `GET /v1/account/usage?days=N`, which reports `billed_usd`,
+`list_usd` and `saved_usd` over a **window**. The window is capped at 90 days —
+`days=365` is a 400 — so it is never a lifetime figure the way OpenRouter's
+`usage` is. Every snapshot therefore records `spend_window_days` next to the
+spend, and the dashboard only sums all-time figures into its headline. Adding a
+90-day figure to an all-time one would produce a total that means nothing.
+
+The balance endpoint also reports `reserved_usd`, `threshold_usd` and
+`recharge_amount_usd`. The app reads `available_usd`, which is what the account
+can actually spend after reservations.
+
 ## Open questions
 
 - Poll interval, default 30 minutes. Some providers rate-limit balance checks,

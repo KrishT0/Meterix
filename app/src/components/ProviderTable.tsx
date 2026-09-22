@@ -19,8 +19,7 @@ export function ProviderTable({
         <span className="label text-ink-muted">Provider</span>
         <span className="label text-ink-muted">Basis</span>
         <span className="label text-right text-ink-muted">Balance</span>
-        <span className="label text-right text-ink-muted">Spend</span>
-        <span className="label text-right text-ink-muted">Checked</span>
+        <span className="label text-right text-ink-muted">Spend</span>        <span className="label text-right text-ink-muted">Checked</span>
       </div>
 
       {providers.map((provider) => {
@@ -50,7 +49,16 @@ export function ProviderTable({
             </span>
 
             <span className="num text-right text-[13px] text-ink-dim">
-              {provider.usage === null ? '—' : usd(provider.usage).slice(1)}
+              {provider.usage === null ? (
+                '—'
+              ) : (
+                <>
+                  {usd(provider.usage).slice(1)}
+                  {provider.spendWindowDays === null ? null : (
+                    <span className="text-ink-muted">/{provider.spendWindowDays}d</span>
+                  )}
+                </>
+              )}
             </span>
 
             <span

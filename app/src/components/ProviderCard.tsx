@@ -140,7 +140,12 @@ export function ProviderCard({
           <span title={outcome.errorMessage ?? undefined}>{outcome.errorMessage}</span>
         ) : (
           <>
-            {provider.usage === null ? null : <>usage {usd(provider.usage).slice(1)} · </>}
+            {provider.usage === null ? null : (
+              <>
+                usage {usd(provider.usage).slice(1)}
+                {provider.spendWindowDays === null ? '' : `/${provider.spendWindowDays}d`} ·{' '}
+              </>
+            )}
             checked {relativeTime(provider.recordedAt)}
           </>
         )}

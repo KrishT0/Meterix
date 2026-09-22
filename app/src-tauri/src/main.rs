@@ -26,6 +26,8 @@ struct ProviderOverview {
     basis: Option<Basis>,
     account_credits: Option<f64>,
     usage: Option<f64>,
+    /// Days the usage figure covers. Null means all-time.
+    spend_window_days: Option<u32>,
     recorded_at: Option<String>,
 }
 
@@ -40,6 +42,7 @@ struct RefreshOutcome {
     basis: Option<Basis>,
     account_credits: Option<f64>,
     usage: Option<f64>,
+    spend_window_days: Option<u32>,
     error_kind: Option<String>,
     error_message: Option<String>,
 }
@@ -63,6 +66,7 @@ fn overview() -> Result<Vec<ProviderOverview>, String> {
                 basis: latest.as_ref().map(|snapshot| snapshot.basis),
                 account_credits: latest.as_ref().and_then(|snapshot| snapshot.account_credits),
                 usage: latest.as_ref().and_then(|snapshot| snapshot.usage),
+                spend_window_days: latest.as_ref().and_then(|snapshot| snapshot.spend_window_days),
                 recorded_at: latest.map(|snapshot| snapshot.recorded_at),
             })
         })
@@ -93,6 +97,7 @@ async fn refresh(only: Option<String>) -> Result<Vec<RefreshOutcome>, String> {
                     basis: Some(balance.basis),
                     account_credits: balance.account_credits,
                     usage: balance.usage,
+                    spend_window_days: balance.spend_window_days,
                     error_kind: None,
                     error_message: None,
                 });
@@ -104,6 +109,7 @@ async fn refresh(only: Option<String>) -> Result<Vec<RefreshOutcome>, String> {
                 basis: None,
                 account_credits: None,
                 usage: None,
+                spend_window_days: None,
                 error_kind: Some(error.kind().to_string()),
                 error_message: Some(error.to_string()),
             }),

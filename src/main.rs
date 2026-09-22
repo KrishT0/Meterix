@@ -65,22 +65,28 @@ fn show_history(provider: &str, limit: usize) -> Result<()> {
     let connection = open_database()?;
 
     println!(
-        "{:<19}  {:<15}  {:>17}  {:>9}  {:>12}",
-        "recorded_at", "basis", "account credits", "usage", "remaining"
+        "{:<19}  {:<15}  {:>17}  {:>9}  {:>7}  {:>12}",
+        "recorded_at", "basis", "account credits", "usage", "window", "remaining"
     );
 
     for snapshot in history(&connection, provider, limit)? {
         println!(
-            "{:<19}  {:<15}  {:>17}  {:>9}  {:>12}",
+            "{:<19}  {:<15}  {:>17}  {:>9}  {:>7}  {:>12}",
             snapshot.recorded_at,
             snapshot.basis.as_str(),
             money(snapshot.account_credits),
             money(snapshot.usage),
+            // "all" and "90d" are not the same kind of number.
+            window(snapshot.spend_window_days),
             format!("${:.2}", snapshot.remaining)
         );
     }
 
     Ok(())
+}
+
+fn window(days: Option<u32>) -> String {
+    days.map_or_else(|| "all".to_string(), |days| format!("{days}d"))
 }
 
 #[tokio::main]

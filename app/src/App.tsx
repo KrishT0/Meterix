@@ -123,11 +123,15 @@ export default function App() {
   const totalBalance = balances.reduce((sum, row) => sum + (row.balance ?? 0), 0)
 
   const priced = overview.filter((row) => row.accountCredits !== null)
-  const totalSpend = overview.reduce((sum, row) => sum + (row.usage ?? 0), 0)
-  const totalPurchased = priced.reduce(
-    (sum, row) => sum + (row.accountCredits ?? 0) + (row.usage ?? 0),
-    0,
+  // Only all-time spend is summed. A windowed figure folded into the same total
+  // would be adding unlike numbers, so it is left to the table.
+  const allTimeSpend = overview.filter(
+    (row) => row.usage !== null && row.spendWindowDays === null,
   )
+  const totalSpend = allTimeSpend.reduce((sum, row) => sum + (row.usage ?? 0), 0)
+  const totalPurchased = priced
+    .filter((row) => row.usage !== null && row.spendWindowDays === null)
+    .reduce((sum, row) => sum + (row.accountCredits ?? 0) + (row.usage ?? 0), 0)
 
   const burn = burnPerDay(readings)
   const lastReading = overview
@@ -200,205 +204,203 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-full bg-backdrop p-5">
-      <div className="mx-auto max-w-[1180px]">
-        <div className="overflow-hidden rounded-[16px] border border-line bg-surface">
-          <header className="flex items-center gap-3 border-b border-line px-5 py-4">
-            <span className="text-[15px] font-semibold tracking-[-0.01em]">Meterix</span>
+    // The window is the app. No backdrop strip, no rounded panel sitting inside
+    // a page, so the content meets the window edges directly.
+    <div className="flex min-h-full flex-col bg-surface">
+      <header className="flex items-center gap-3 border-b border-line px-6 py-4">
+        <span className="text-[15px] font-semibold tracking-[-0.01em]">Meterix</span>
 
-            <Pill className={`flex items-center gap-1.5 ${tones[overallTone].pill}`}>
-              <StatusDot tone={overallTone} />
-              {configured.length} tracked
-            </Pill>
+        <Pill className={`flex items-center gap-1.5 ${tones[overallTone].pill}`}>
+          <StatusDot tone={overallTone} />
+          {configured.length} tracked
+        </Pill>
 
-            <div className="ml-auto flex items-center gap-3">
-              <span className="num text-[12px] text-ink-muted">
-                updated {relativeTime(lastReading ?? null)}
+        <div className="ml-auto flex items-center gap-3">
+          <span className="num text-[12px] text-ink-muted">
+            updated {relativeTime(lastReading ?? null)}
+          </span>
+          <Button variant="secondary" onClick={() => void refreshAll()} disabled={busy}>
+            <span className="flex items-center gap-2">
+              <RefreshIcon className={busy ? 'animate-spin' : ''} />
+              {busy ? 'Refreshing' : 'Refresh'}
+            </span>
+          </Button>
+        </div>
+      </header>
+
+      <div className="flex-1 space-y-6 p-6">
+        {fatal ? (
+          <div className="rounded-[10px] border border-copper-dim/40 bg-copper-tint px-4 py-3">
+            <span className="label-sm text-copper">Could not reach the core</span>
+            <p className="num mt-1 text-[12px] text-ink-dim">{fatal}</p>
+          </div>
+        ) : null}
+
+        {failed.length > 0 ? (
+          <div className="rounded-[10px] border border-copper-dim/40 bg-copper-tint px-4 py-3">
+            <span className="label-sm text-copper">
+              Could not read {failed.length === 1 ? 'a provider' : 'some providers'}
+            </span>
+            <ul className="mt-2 space-y-1">
+              {failed.map((outcome) => (
+                <li key={outcome.provider} className="num text-[12px] text-ink-dim">
+                  {outcome.provider}: {outcome.errorMessage}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+
+        <div className="flex items-start gap-10">
+          <div>
+            <Label className="text-ink-muted">Total balance</Label>
+            <div className="mt-2 flex items-baseline gap-2">
+              <span className="num text-[46px] leading-none font-bold tracking-[-0.03em]">
+                {balances.length === 0 ? '—' : amount(totalBalance)}
               </span>
-              <Button variant="secondary" onClick={() => void refreshAll()} disabled={busy}>
-                <span className="flex items-center gap-2">
-                  <RefreshIcon className={busy ? 'animate-spin' : ''} />
-                  {busy ? 'Refreshing' : 'Refresh'}
-                </span>
-              </Button>
+              {balances.length === 0 ? null : (
+                <span className="num text-[13px] text-ink-muted">USD</span>
+              )}
             </div>
-          </header>
-
-          <div className="space-y-5 p-5">
-            {fatal ? (
-              <div className="rounded-[10px] border border-copper-dim/40 bg-copper-tint px-4 py-3">
-                <span className="label-sm text-copper">Could not reach the core</span>
-                <p className="num mt-1 text-[12px] text-ink-dim">{fatal}</p>
-              </div>
-            ) : null}
-
-            {failed.length > 0 ? (
-              <div className="rounded-[10px] border border-copper-dim/40 bg-copper-tint px-4 py-3">
-                <span className="label-sm text-copper">
-                  Could not read {failed.length === 1 ? 'a provider' : 'some providers'}
+            <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-1">
+              <span className="label-sm text-ink-muted">
+                Spent all time{' '}
+                <span className="num text-ink-dim">
+                  {allTimeSpend.length === 0 ? '—' : usd(totalSpend).slice(1)}
                 </span>
-                <ul className="mt-2 space-y-1">
-                  {failed.map((outcome) => (
-                    <li key={outcome.provider} className="num text-[12px] text-ink-dim">
-                      {outcome.provider}: {outcome.errorMessage}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ) : null}
-
-            <div className="flex items-start gap-10">
-              <div>
-                <Label className="text-ink-muted">Total balance</Label>
-                <div className="mt-2 flex items-baseline gap-2">
-                  <span className="num text-[46px] leading-none font-bold tracking-[-0.03em]">
-                    {balances.length === 0 ? '—' : amount(totalBalance)}
-                  </span>
-                  {balances.length === 0 ? null : (
-                    <span className="num text-[13px] text-ink-muted">USD</span>
-                  )}
-                </div>
-                <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-1">
-                  <span className="label-sm text-ink-muted">
-                    Spent{' '}
-                    <span className="num text-ink-dim">
-                      {overview.some((row) => row.usage !== null) ? usd(totalSpend).slice(1) : '—'}
-                    </span>
-                  </span>
-                  {priced.length > 0 ? (
-                    <span className="label-sm text-ink-muted">
-                      Top-ups{' '}
-                      <span className="num text-ink-dim">{usd(totalPurchased).slice(1)}</span>
-                    </span>
-                  ) : null}
-                  <span className="label-sm text-ink-muted">
-                    Burn{' '}
-                    <span className="num text-ink-dim">
-                      {burn === null ? '—' : `${burn.toFixed(2)}/day`}
-                    </span>
-                  </span>
-                </div>
-              </div>
-
-              {problems.length > 0 ? (
-                <div className="mt-7 flex items-center gap-2 rounded-[10px] border border-amber-line bg-amber-tint px-3.5 py-2.5">
-                  <span className="num text-[12px] text-amber-dim">
-                    {problems.length} provider{problems.length === 1 ? '' : 's'} need attention
-                  </span>
-                </div>
+              </span>
+              {totalPurchased > 0 ? (
+                <span className="label-sm text-ink-muted">
+                  Top-ups{' '}
+                  <span className="num text-ink-dim">{usd(totalPurchased).slice(1)}</span>
+                </span>
               ) : null}
-
-              <div className="num ml-auto mt-7 text-right text-[12px] text-ink-muted">
-                <div className="label-sm">Providers</div>
-                <div className="mt-1.5 text-ink-dim">
-                  {configured.length} of {supported.length} configured
-                </div>
-                <div className="label-sm mt-1.5">
-                  low below {usd(LOW_BALANCE_THRESHOLD).slice(1)}
-                </div>
-              </div>
+              <span className="label-sm text-ink-muted">
+                Burn{' '}
+                <span className="num text-ink-dim">
+                  {burn === null ? '—' : `${burn.toFixed(2)}/day`}
+                </span>
+              </span>
             </div>
-
-            {ready && supported.length > 0 ? (
-              <div className="flex flex-wrap items-stretch gap-2.5">
-                <div className="flex min-w-[320px] flex-1 items-center gap-3 rounded-[10px] border border-line bg-inset px-4 py-3">
-                  <Label className="text-ink-muted">Key</Label>
-                  <input
-                    type="password"
-                    value={keyDraft}
-                    onChange={(event) => setKeyDraft(event.target.value)}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter') void addProvider()
-                    }}
-                    placeholder="paste an api key"
-                    className="num min-w-0 flex-1 bg-transparent text-[13px] text-ink outline-none placeholder:text-ink-muted"
-                  />
-                  <div className="flex items-center gap-1.5">
-                    {supported.map((name) => (
-                      <button
-                        key={name}
-                        type="button"
-                        onClick={() => setChosen(name)}
-                        className={`label-sm rounded-md border px-2 py-1 transition ${
-                          name === active
-                            ? 'border-amber bg-amber text-[#1A1408]'
-                            : 'border-line-strong text-ink-dim hover:border-ink-muted'
-                        }`}
-                      >
-                        {name}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <Button
-                  variant="primary"
-                  onClick={() => void addProvider()}
-                  disabled={busy || keyDraft.trim() === ''}
-                  className="shrink-0 px-6"
-                >
-                  {saving ? 'Saving…' : 'Save key'}
-                </Button>
-              </div>
-            ) : null}
-
-            {ready && configured.length === 0 ? (
-              <div className="flex flex-col items-center rounded-[12px] border border-line bg-inset px-8 py-14 text-center">
-                <h2 className="text-[16px] font-medium">No providers connected</h2>
-                <p className="num mt-2 max-w-[380px] text-[12px] leading-relaxed text-ink-muted">
-                  Paste an API key above to start tracking a balance. Keys go to your OS keychain
-                  and are never written to the database.
-                </p>
-              </div>
-            ) : null}
-
-            {configured.length > 0 ? (
-              <>
-                <div className="flex items-center justify-between pt-1">
-                  <Label className="text-ink-muted">Providers</Label>
-                  <span className="num text-[11px] text-ink-muted">
-                    {configured.length} configured · {readingsCount(readings)} readings stored
-                  </span>
-                </div>
-
-                <div className="grid grid-cols-1 gap-2.5 xl:grid-cols-2">
-                  {shown.map((row) => (
-                    <ProviderCard
-                      key={row.name}
-                      provider={row}
-                      outcome={outcomes[row.name]}
-                      readings={readings[row.name] ?? []}
-                      onRemove={() => void removeProvider(row.name)}
-                      busy={busy}
-                    />
-                  ))}
-                </div>
-
-                <BalanceChart series={series} />
-
-                <ProviderTable providers={shown} outcomes={outcomes} />
-
-                <div className="flex items-start gap-2.5 rounded-[10px] border border-line bg-inset px-4 py-3">
-                  <p className="num text-[12px] leading-relaxed text-ink-muted">
-                    Not every key reports a balance. Rows stored with{' '}
-                    <span className="text-copper">basis = usage</span> hold spend instead, so they
-                    are kept out of the chart. A rising spend line would read like a healthy
-                    balance.
-                  </p>
-                </div>
-              </>
-            ) : null}
           </div>
 
-          {configured.length > 0 ? (
-            <footer className="flex items-center gap-3 border-t border-line px-5 py-3.5">
-              <span className="num text-[12px] text-ink-muted">
-                last reading {relativeTime(lastReading ?? null)} · {readingsCount(readings)} snapshots
-                in the database
+          {problems.length > 0 ? (
+            <div className="mt-7 flex items-center gap-2 rounded-[10px] border border-amber-line bg-amber-tint px-3.5 py-2.5">
+              <span className="num text-[12px] text-amber-dim">
+                {problems.length} provider{problems.length === 1 ? '' : 's'} need attention
               </span>
-            </footer>
+            </div>
           ) : null}
+
+          <div className="num ml-auto mt-7 text-right text-[12px] text-ink-muted">
+            <div className="label-sm">Providers</div>
+            <div className="mt-1.5 text-ink-dim">
+              {configured.length} of {supported.length} configured
+            </div>
+            <div className="label-sm mt-1.5">
+              low below {usd(LOW_BALANCE_THRESHOLD).slice(1)}
+            </div>
+          </div>
         </div>
+
+        {ready && supported.length > 0 ? (
+          <div className="flex flex-wrap items-stretch gap-2.5">
+            <div className="flex min-w-[320px] flex-1 items-center gap-3 rounded-[10px] border border-line bg-inset px-4 py-3">
+              <Label className="text-ink-muted">Key</Label>
+              <input
+                type="password"
+                value={keyDraft}
+                onChange={(event) => setKeyDraft(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') void addProvider()
+                }}
+                placeholder="paste an api key"
+                className="num min-w-0 flex-1 bg-transparent text-[13px] text-ink outline-none placeholder:text-ink-muted"
+              />
+              <div className="flex items-center gap-1.5">
+                {supported.map((name) => (
+                  <button
+                    key={name}
+                    type="button"
+                    onClick={() => setChosen(name)}
+                    className={`label-sm rounded-md border px-2 py-1 transition ${
+                      name === active
+                        ? 'border-amber bg-amber text-[#1A1408]'
+                        : 'border-line-strong text-ink-dim hover:border-ink-muted'
+                    }`}
+                  >
+                    {name}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <Button
+              variant="primary"
+              onClick={() => void addProvider()}
+              disabled={busy || keyDraft.trim() === ''}
+              className="shrink-0 px-6"
+            >
+              {saving ? 'Saving…' : 'Save key'}
+            </Button>
+          </div>
+        ) : null}
+
+        {ready && configured.length === 0 ? (
+          <div className="flex flex-col items-center rounded-[12px] border border-line bg-inset px-8 py-14 text-center">
+            <h2 className="text-[16px] font-medium">No providers connected</h2>
+            <p className="num mt-2 max-w-[380px] text-[12px] leading-relaxed text-ink-muted">
+              Paste an API key above to start tracking a balance. Keys go to your OS keychain
+              and are never written to the database.
+            </p>
+          </div>
+        ) : null}
+
+        {configured.length > 0 ? (
+          <>
+            <div className="flex items-center justify-between pt-1">
+              <Label className="text-ink-muted">Providers</Label>
+              <span className="num text-[11px] text-ink-muted">
+                {configured.length} configured · {readingsCount(readings)} readings stored
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 gap-2.5 xl:grid-cols-2">
+              {shown.map((row) => (
+                <ProviderCard
+                  key={row.name}
+                  provider={row}
+                  outcome={outcomes[row.name]}
+                  readings={readings[row.name] ?? []}
+                  onRemove={() => void removeProvider(row.name)}
+                  busy={busy}
+                />
+              ))}
+            </div>
+
+            <BalanceChart series={series} />
+
+            <ProviderTable providers={shown} outcomes={outcomes} />
+
+            <div className="flex items-start gap-2.5 rounded-[10px] border border-line bg-inset px-4 py-3">
+              <p className="num text-[12px] leading-relaxed text-ink-muted">
+                Not every key reports a balance. Rows stored with{' '}
+                <span className="text-copper">basis = usage</span> hold spend instead, so they
+                are kept out of the chart. A rising spend line would read like a healthy
+                balance.
+              </p>
+            </div>
+          </>
+        ) : null}
       </div>
+
+      {configured.length > 0 ? (
+        <footer className="flex items-center gap-3 border-t border-line px-6 py-3.5">
+          <span className="num text-[12px] text-ink-muted">
+            last reading {relativeTime(lastReading ?? null)} · {readingsCount(readings)} snapshots
+            in the database
+          </span>
+        </footer>
+      ) : null}
     </div>
   )
 }

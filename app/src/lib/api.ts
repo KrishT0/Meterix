@@ -19,6 +19,8 @@ export interface ProviderOverview {
   basis: Basis | null
   accountCredits: number | null
   usage: number | null
+  /** Days the usage figure covers. `null` means all-time. */
+  spendWindowDays: number | null
   recordedAt: string | null
 }
 
@@ -29,6 +31,7 @@ export interface RefreshOutcome {
   basis: Basis | null
   accountCredits: number | null
   usage: number | null
+  spendWindowDays: number | null
   errorKind: ErrorKind | null
   errorMessage: string | null
 }
@@ -38,6 +41,7 @@ export interface SnapshotRow {
   basis: Basis
   accountCredits: number | null
   usage: number | null
+  spendWindowDays: number | null
   remaining: number
 }
 
