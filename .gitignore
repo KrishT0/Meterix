@@ -1,2 +1,5 @@
 /target
 *.db
+
+# design references, temporary — remove this line if you want them tracked
+/reference
