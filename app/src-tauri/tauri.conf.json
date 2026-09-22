@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Plexo Credits",
+  "productName": "Meterix",
   "version": "0.1.0",
-  "identifier": "com.plexo.credits",
+  "identifier": "com.meterix.app",
   "build": {
     "beforeDevCommand": "npm run dev",
     "beforeBuildCommand": "npm run build",
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Plexo Credits",
+        "title": "Meterix",
         "width": 1180,
         "height": 780,
         "minWidth": 880,

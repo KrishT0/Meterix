@@ -1,4 +1,4 @@
-# Plexo Credits
+# Meterix
 
 A tray app that watches how much credit is left on your LLM API accounts. It
 polls each provider in the background, colour-codes the tray icon, and shows a
@@ -143,6 +143,11 @@ installed somewhere read-only.
 
 ## Decisions worth knowing
 
+**One name.** The product is Meterix. The core crate is `meterix-core`, the app
+crate is `meterix`, the keychain service and data directory are both
+`meterix-core`. Nothing was renamed after keys were stored, so no key was
+stranded.
+
 **The dashboard only plots readings that are balances.** Rows whose `basis` is
 `usage` hold spend, which climbs as the account empties. Drawing one on the
 same axis as a balance produces a chart that looks healthy while the money runs
@@ -191,10 +196,6 @@ needs to branch.
 
 ## Open questions
 
-- **Naming.** The directory, the crate, the binary and the keychain service all
-  say `meterix`. The product is Plexo Credits. Pick one before packaging. The
-  keychain service name is user-visible state, so changing it later strands
-  every stored key.
 - Poll interval, default 30 minutes. Some providers rate-limit balance checks,
   so it may need to be per provider rather than global.
 - What counts as "low"? A raw USD threshold is the simplest thing that works.

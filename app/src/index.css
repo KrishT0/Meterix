@@ -2,7 +2,7 @@
 @import '@fontsource-variable/inter';
 @import '@fontsource-variable/jetbrains-mono';
 
-/* Design tokens measured off the Plexo screenshots. */
+/* Design tokens measured off the reference screenshots. */
 @theme {
   --font-sans: 'Inter Variable', system-ui, sans-serif;
   --font-mono: 'JetBrains Mono Variable', ui-monospace, monospace;

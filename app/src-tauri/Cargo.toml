@@ -1,5 +1,5 @@
 [package]
-name = "plexo-credits"
+name = "meterix"
 version = "0.1.0"
 edition = "2024"
 description = "Tray app for tracking LLM API credit balances"

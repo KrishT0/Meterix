@@ -190,7 +190,7 @@ export default function App() {
       <div className="mx-auto max-w-[1180px]">
         <div className="overflow-hidden rounded-[16px] border border-line bg-surface">
           <header className="flex items-center gap-3 border-b border-line px-5 py-4">
-            <span className="text-[15px] font-semibold tracking-[-0.01em]">Plexo Credits</span>
+            <span className="text-[15px] font-semibold tracking-[-0.01em]">Meterix</span>
 
             <Pill className={`flex items-center gap-1.5 ${tones[overallTone].pill}`}>
               <StatusDot tone={overallTone} />
