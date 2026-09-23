@@ -60,8 +60,12 @@ export function healthOf(
   provider: ProviderOverview,
   outcome: RefreshOutcome | undefined,
 ): Health {
-  if (outcome && !outcome.ok) return 'error'
+  // Nothing configured cannot be in error: there was no check to fail. The
+  // provider with no key fails with `missing_credential`, which is the state a
+  // fresh install is in, so testing the outcome first painted the header pill
+  // an error colour while it read "0 tracked".
   if (!provider.configured) return 'unknown'
+  if (outcome && !outcome.ok) return 'error'
   // A usage figure is not a balance, so it cannot be judged against one.
   if (provider.basis === 'usage' || provider.balance === null) return 'unknown'
   return provider.balance < provider.threshold ? 'low' : 'ok'

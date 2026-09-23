@@ -391,8 +391,11 @@ export function Settings({ onClose }: { onClose: () => void }) {
         </div>
       </div>
 
-      {/* zone: footer */}
-      <div className="mt-10 flex items-center gap-3 border-t border-line pt-4">
+      {/* zone: footer.
+          The rule runs edge to edge like the window's own header rule instead of
+          stopping at this view's padding: `-mx-4` cancels the `p-4` above and
+          `px-4` puts the content back where it was. */}
+      <div className="mt-10 -mx-4 flex items-center gap-3 border-t border-line px-4 pt-4">
         {dirty ? (
           <Pill className={tones.amber.pill}>unsaved changes</Pill>
         ) : (

@@ -28,11 +28,11 @@ const HISTORY_LIMIT = 1500
  * each provider. Null until some provider has two dated readings, because
  * guessing from one point would be inventing a number.
  */
-function burnPerDay(readings: Record<string, SnapshotRow[]>): number | null {
+function burnPerDay(series: SnapshotRow[][]): number | null {
   let spent = 0
   let seconds = 0
 
-  for (const rows of Object.values(readings)) {
+  for (const rows of series) {
     const balances = rows
       .filter((row) => row.basis !== 'usage')
       .slice()
@@ -140,13 +140,17 @@ export default function App() {
   // the top is where it comes back from.
   const shown = configured
 
-  const balances = overview.filter((row) => row.balance !== null && row.basis !== 'usage')
+  // Everything below summarises what is actually being tracked, so it counts
+  // only providers that still hold a key. A provider whose key was removed keeps
+  // its readings, and folding those in would put a balance on screen that
+  // nothing can verify any more — and leave "—" sitting next to a stale spend.
+  const balances = shown.filter((row) => row.balance !== null && row.basis !== 'usage')
   const totalBalance = balances.reduce((sum, row) => sum + (row.balance ?? 0), 0)
 
-  const priced = overview.filter((row) => row.accountCredits !== null)
+  const priced = shown.filter((row) => row.accountCredits !== null)
   // Only all-time spend is summed. A windowed figure folded into the same total
   // would be adding unlike numbers, so it is left to the table.
-  const allTimeSpend = overview.filter(
+  const allTimeSpend = shown.filter(
     (row) => row.usage !== null && row.spendWindowDays === null,
   )
   const totalSpend = allTimeSpend.reduce((sum, row) => sum + (row.usage ?? 0), 0)
@@ -154,8 +158,8 @@ export default function App() {
     .filter((row) => row.usage !== null && row.spendWindowDays === null)
     .reduce((sum, row) => sum + (row.accountCredits ?? 0) + (row.usage ?? 0), 0)
 
-  const burn = burnPerDay(readings)
-  const lastReading = overview
+  const burn = burnPerDay(shown.map((row) => readings[row.name] ?? []))
+  const lastReading = shown
     .map((row) => row.recordedAt)
     .filter((value): value is string => value !== null)
     .sort()
@@ -286,9 +290,13 @@ export default function App() {
         </Pill>
 
         <div className="ml-auto flex items-center gap-3">
-          <span className="num text-[12px] text-ink-muted">
-            updated {relativeTime(lastReading ?? null)}
-          </span>
+          {/* Nothing tracked means nothing to report as fresh. "updated never"
+              is worse copy than saying nothing at all. */}
+          {configured.length > 0 ? (
+            <span className="num text-[12px] text-ink-muted">
+              updated {relativeTime(lastReading ?? null)}
+            </span>
+          ) : null}
           <Button variant="secondary" onClick={() => void refreshAll()} disabled={busy}>
             <span className="flex items-center gap-2">
               <RefreshIcon className={busy ? 'animate-spin' : ''} />
