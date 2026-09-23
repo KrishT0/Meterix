@@ -8,6 +8,7 @@
 // it, because that is where Rust errors and panics show up.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
@@ -19,8 +20,10 @@ use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent}
 use tauri::{AppHandle, Emitter, Manager, WindowEvent};
 
 use meterix_core::{
-    Basis, PROVIDERS, Snapshot, credential_hint, display_name, fetch_balances, forget_key, history,
-    open_database, save_snapshot, save_verified_key,
+    Basis, DEFAULT_POLL_INTERVAL_MINUTES, PROVIDERS, Settings, Snapshot, credential_hint,
+    display_name, effective_threshold, fetch_balances, forget_key, history, load_settings,
+    open_database, provider_thresholds, save_settings as persist_settings, save_snapshot,
+    save_verified_key, set_provider_threshold as store_threshold,
 };
 
 /// One provider, as the dashboard needs it: whether a key exists, and the most
@@ -42,6 +45,10 @@ struct ProviderOverview {
     /// Days the usage figure covers. Null means all-time.
     spend_window_days: Option<u32>,
     recorded_at: Option<String>,
+    /// Balance below which this provider counts as low, already resolved from
+    /// its own override or the app default. Sent so the dashboard never has to
+    /// hold a threshold of its own.
+    threshold: f64,
 }
 
 /// What one provider did on a refresh. Failures travel alongside successes
@@ -64,6 +71,8 @@ struct RefreshOutcome {
 #[tauri::command]
 fn overview() -> Result<Vec<ProviderOverview>, String> {
     let connection = open_database().map_err(|error| error.to_string())?;
+    let settings = load_settings(&connection).map_err(|error| error.to_string())?;
+    let own = provider_thresholds(&connection).map_err(|error| error.to_string())?;
 
     PROVIDERS
         .iter()
@@ -77,6 +86,11 @@ fn overview() -> Result<Vec<ProviderOverview>, String> {
             // stored" and "is anything stored".
             let hint = credential_hint(name);
 
+            let override_threshold = own
+                .iter()
+                .find(|(provider, _)| provider == name)
+                .and_then(|(_, threshold)| *threshold);
+
             Ok(ProviderOverview {
                 name: (*name).to_string(),
                 display_name: display_name(name).to_string(),
@@ -88,6 +102,7 @@ fn overview() -> Result<Vec<ProviderOverview>, String> {
                 usage: latest.as_ref().and_then(|snapshot| snapshot.usage),
                 spend_window_days: latest.as_ref().and_then(|snapshot| snapshot.spend_window_days),
                 recorded_at: latest.map(|snapshot| snapshot.recorded_at),
+                threshold: effective_threshold(&settings, override_threshold),
             })
         })
         .collect()
@@ -106,6 +121,7 @@ async fn refresh_and_store(
     let outcomes = fetch_balances(only).await.map_err(|error| error.to_string())?;
 
     let connection = open_database().map_err(|error| error.to_string())?;
+    let thresholds = resolved_threshold_map(&connection)?;
     let mut rows = Vec::with_capacity(outcomes.len());
 
     for (provider, result) in outcomes {
@@ -141,7 +157,7 @@ async fn refresh_and_store(
         }
     }
 
-    update_tray(app, &rows);
+    update_tray(app, &rows, &thresholds);
 
     // Tell every open window, so the popover and the dashboard cannot disagree.
     // They re-read the database rather than being handed this payload, which
@@ -214,20 +230,9 @@ const POPOVER_LABEL: &str = "tray";
 /// rather than being handed state, so there is one path for reading it.
 const UPDATED_EVENT: &str = "balances-updated";
 
-/// How often the background poller runs.
-///
-/// ponytail: a fixed 30 minutes, the roadmap's default. Making it configurable
-/// needs a settings column and a settings screen.
-const POLL_INTERVAL: Duration = Duration::from_secs(30 * 60);
-
-/// Balance below which a provider counts as low, for the tray colour.
-///
-/// Must match `LOW_BALANCE_THRESHOLD` in app/src/components/ui.tsx. It is
-/// duplicated because the tray has to work with no window open, while the
-/// dashboard tints its own cards. Both disappear when thresholds become
-/// per-provider data, which is what v3 wants them to be.
-const LOW_BALANCE_THRESHOLD: f64 = 2.0;
-
+/// How often the background poller runs, until someone changes it. The stored
+/// setting is read fresh on every loop; `Poller::wake` cuts the current wait
+/// short when it changes.
 const COLOUR_OK: [u8; 3] = [0x4D, 0xB6, 0xAC];
 const COLOUR_LOW: [u8; 3] = [0xE0, 0xA6, 0x4B];
 const COLOUR_ERROR: [u8; 3] = [0xD0, 0x8A, 0x5C];
@@ -261,35 +266,50 @@ fn status_icon(colour: [u8; 3]) -> Image<'static> {
     Image::new_owned(pixels, SIZE, SIZE)
 }
 
+/// Every provider's effective threshold, as a map for the tray's colour check.
+fn resolved_threshold_map(
+    connection: &meterix_core::Connection,
+) -> Result<HashMap<String, f64>, String> {
+    Ok(meterix_core::resolved_thresholds(connection)
+        .map_err(|error| error.to_string())?
+        .into_iter()
+        .collect())
+}
+
 /// The worst thing happening across the providers, which is what a tray icon
 /// has room to say. One failing provider deserves more attention than another
 /// one being healthy.
-fn status_colour(outcomes: &[RefreshOutcome]) -> [u8; 3] {
+fn status_colour(outcomes: &[RefreshOutcome], thresholds: &HashMap<String, f64>) -> [u8; 3] {
     if outcomes.iter().any(|outcome| !outcome.ok) {
         return COLOUR_ERROR;
     }
 
-    let balances: Vec<f64> = outcomes
+    let balances: Vec<(String, f64)> = outcomes
         .iter()
-        .filter_map(|outcome| outcome.balance)
+        .filter_map(|outcome| outcome.balance.map(|balance| (outcome.provider.clone(), balance)))
         .collect();
 
     if balances.is_empty() {
         return COLOUR_IDLE;
     }
-    if balances.iter().any(|balance| *balance < LOW_BALANCE_THRESHOLD) {
-        return COLOUR_LOW;
-    }
 
-    COLOUR_OK
+    // A provider with no stored threshold is compared against nothing, so it
+    // can only be healthy.
+    let low = balances.iter().any(|(provider, balance)| {
+        thresholds
+            .get(provider)
+            .is_some_and(|threshold| *balance < *threshold)
+    });
+
+    if low { COLOUR_LOW } else { COLOUR_OK }
 }
 
-fn update_tray(app: &AppHandle, outcomes: &[RefreshOutcome]) {
+fn update_tray(app: &AppHandle, outcomes: &[RefreshOutcome], thresholds: &HashMap<String, f64>) {
     let Some(tray) = app.tray_by_id(TRAY_ID) else {
         return;
     };
 
-    let _ = tray.set_icon(Some(status_icon(status_colour(outcomes))));
+    let _ = tray.set_icon(Some(status_icon(status_colour(outcomes, thresholds))));
 
     let total: f64 = outcomes.iter().filter_map(|outcome| outcome.balance).sum();
     let plural = if outcomes.len() == 1 { "" } else { "s" };
@@ -378,13 +398,37 @@ async fn poll_once(app: &AppHandle) {
     }
 }
 
+/// Lets a settings change cut the poller's sleep short, so a new interval takes
+/// effect immediately rather than after the old one has elapsed.
+#[derive(Default)]
+struct Poller {
+    wake: tokio::sync::Notify,
+}
+
+fn stored_interval_minutes() -> u32 {
+    open_database()
+        .and_then(|connection| load_settings(&connection))
+        .map(|settings| settings.poll_interval_minutes)
+        .unwrap_or(DEFAULT_POLL_INTERVAL_MINUTES)
+}
+
 fn spawn_poller(app: AppHandle) {
     tauri::async_runtime::spawn(async move {
         loop {
-            // Sleep before the first poll: the dashboard already refreshes on
-            // mount, so polling straight away would double every launch.
-            tokio::time::sleep(POLL_INTERVAL).await;
-            poll_once(&app).await;
+            let minutes = stored_interval_minutes();
+            let wait = tokio::time::sleep(Duration::from_secs(u64::from(minutes) * 60));
+
+            // Bound before the macro: `app.state` returns a temporary, and
+            // borrowing it inline would drop it mid-expression.
+            let poller = app.state::<Poller>();
+
+            // Sleeping before the first poll: the dashboard already refreshes
+            // on mount, so polling straight away would double every launch.
+            tokio::select! {
+                () = wait => poll_once(&app).await,
+                // The interval changed. Go round and read the new one.
+                () = poller.wake.notified() => {}
+            }
         }
     });
 }
@@ -429,22 +473,116 @@ fn build_tray(app: &AppHandle, quitting: Arc<AtomicBool>) -> tauri::Result<()> {
     Ok(())
 }
 
+/// Everything the settings screen needs, in one call.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SettingsView {
+    poll_interval_minutes: u32,
+    low_balance_threshold: f64,
+    database_path: String,
+    autostart_enabled: bool,
+    providers: Vec<ProviderSetting>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ProviderSetting {
+    name: String,
+    display_name: String,
+    /// Null when this provider uses the app default.
+    low_balance_threshold: Option<f64>,
+    key_hint: Option<String>,
+}
+
+#[tauri::command]
+fn settings(app: AppHandle) -> Result<SettingsView, String> {
+    use tauri_plugin_autostart::ManagerExt;
+
+    let connection = open_database().map_err(|error| error.to_string())?;
+    let current = load_settings(&connection).map_err(|error| error.to_string())?;
+    let own = provider_thresholds(&connection).map_err(|error| error.to_string())?;
+
+    let providers = PROVIDERS
+        .iter()
+        .map(|name| ProviderSetting {
+            name: (*name).to_string(),
+            display_name: display_name(name).to_string(),
+            low_balance_threshold: own
+                .iter()
+                .find(|(provider, _)| provider == name)
+                .and_then(|(_, threshold)| *threshold),
+            key_hint: credential_hint(name),
+        })
+        .collect();
+
+    // A path and a preference that can genuinely fail are reported as such
+    // rather than defaulted, so the screen does not claim something it cannot
+    // back up.
+    Ok(SettingsView {
+        poll_interval_minutes: current.poll_interval_minutes,
+        low_balance_threshold: current.low_balance_threshold,
+        database_path: meterix_core::database_path()
+            .map(|path| path.display().to_string())
+            .unwrap_or_else(|error| format!("unavailable: {error}")),
+        autostart_enabled: app.autolaunch().is_enabled().unwrap_or(false),
+        providers,
+    })
+}
+
+/// Saved as one form, because that is how the screen presents it.
+#[tauri::command]
+fn save_settings(app: AppHandle, settings: Settings, autostart: bool) -> Result<(), String> {
+    use tauri_plugin_autostart::ManagerExt;
+
+    let connection = open_database().map_err(|error| error.to_string())?;
+    persist_settings(&connection, &settings).map_err(|error| error.to_string())?;
+
+    let manager = app.autolaunch();
+    let changed = if autostart {
+        manager.enable()
+    } else {
+        manager.disable()
+    };
+    changed.map_err(|error| error.to_string())?;
+
+    // Cut the current sleep short, so a new interval is not waiting behind the
+    // old one.
+    app.state::<Poller>().wake.notify_one();
+
+    Ok(())
+}
+
+/// Null clears the override and puts the provider back on the app default.
+#[tauri::command]
+fn set_provider_threshold(provider: String, threshold: Option<f64>) -> Result<(), String> {
+    let connection = open_database().map_err(|error| error.to_string())?;
+    store_threshold(&connection, &provider, threshold).map_err(|error| error.to_string())
+}
+
 fn main() {
     let quitting = Arc::new(AtomicBool::new(false));
     let quit_flag = Arc::clone(&quitting);
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            None,
+        ))
         .invoke_handler(tauri::generate_handler![
             overview,
             refresh,
             snapshot_history,
             set_key,
             remove_provider,
-            open_dashboard
+            open_dashboard,
+            settings,
+            save_settings,
+            set_provider_threshold
         ])
         .setup(move |app| {
             let handle = app.handle().clone();
 
+            app.manage(Poller::default());
             build_tray(&handle, Arc::clone(&quitting))?;
 
             // Closing the dashboard hides it rather than tearing down its

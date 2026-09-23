@@ -13,20 +13,18 @@ export type ErrorKind =
   | 'bad_response'
 
 export interface ProviderOverview {
-  /** The id, as used in the database and on the command line. */
   name: string
-  /** How the provider is written for a person. */
   displayName: string
   configured: boolean
-  /** The stored key's format prefix and last four characters, if there is one. */
   keyHint: string | null
   balance: number | null
   basis: Basis | null
   accountCredits: number | null
   usage: number | null
-  /** Days the usage figure covers. `null` means all-time. */
   spendWindowDays: number | null
   recordedAt: string | null
+  /** Already resolved from this provider's override or the app default. */
+  threshold: number
 }
 
 export interface RefreshOutcome {
@@ -50,6 +48,38 @@ export interface SnapshotRow {
   spendWindowDays: number | null
   remaining: number
 }
+
+/** Everything the settings screen needs. */
+export interface SettingsView {
+  pollIntervalMinutes: number
+  lowBalanceThreshold: number
+  databasePath: string
+  autostartEnabled: boolean
+  providers: ProviderSetting[]
+}
+
+export interface ProviderSetting {
+  name: string
+  displayName: string
+  /** `null` when this provider uses the app default. */
+  lowBalanceThreshold: number | null
+  keyHint: string | null
+}
+
+/** The app-wide settings and the autostart preference, saved as one form. */
+export interface SettingsInput {
+  pollIntervalMinutes: number
+  lowBalanceThreshold: number
+}
+
+export const settings = () => invoke<SettingsView>('settings')
+
+export const saveSettings = (settings: SettingsInput, autostart: boolean) =>
+  invoke<void>('save_settings', { settings, autostart })
+
+/** `null` clears the override and puts the provider back on the app default. */
+export const setProviderThreshold = (provider: string, threshold: number | null) =>
+  invoke<void>('set_provider_threshold', { provider, threshold })
 
 /** What happened when a key was offered for saving. */
 export interface SaveKeyOutcome {

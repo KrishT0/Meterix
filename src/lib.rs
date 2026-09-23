@@ -15,7 +15,10 @@ use anyhow::{Context, Result, anyhow};
 use async_trait::async_trait;
 use keyring::Entry;
 use reqwest::{Client, StatusCode};
-use rusqlite::{Connection, params};
+use rusqlite::params;
+// Re-exported so the Tauri shell can name a connection without depending on
+// rusqlite itself, which would risk the two crates resolving different versions.
+pub use rusqlite::Connection;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
@@ -740,15 +743,20 @@ fn column_exists(connection: &Connection, table: &str, column: &str) -> Result<b
     Ok(false)
 }
 
-fn add_column_if_missing(connection: &Connection, column: &str, definition: &str) -> Result<()> {
-    if column_exists(connection, "balance_snapshots", column)? {
+fn add_column_if_missing(
+    connection: &Connection,
+    table: &str,
+    column: &str,
+    definition: &str,
+) -> Result<()> {
+    if column_exists(connection, table, column)? {
         return Ok(());
     }
 
     // ponytail: column sniffing plus ALTER carries a handful of migrations.
     // Move to a PRAGMA user_version ladder once there are three or more.
     connection.execute(
-        &format!("ALTER TABLE balance_snapshots ADD COLUMN {column} {definition}"),
+        &format!("ALTER TABLE {table} ADD COLUMN {column} {definition}"),
         [],
     )?;
 
@@ -761,6 +769,11 @@ fn initialize_database(connection: &Connection) -> Result<()> {
         CREATE TABLE IF NOT EXISTS providers (
             id INTEGER PRIMARY KEY,
             name TEXT NOT NULL UNIQUE
+        );
+
+        CREATE TABLE IF NOT EXISTS settings (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL
         );
 
         CREATE TABLE IF NOT EXISTS balance_snapshots (
@@ -776,12 +789,25 @@ fn initialize_database(connection: &Connection) -> Result<()> {
         ",
     )?;
 
-    add_column_if_missing(connection, "account_credits", "REAL")?;
-    add_column_if_missing(connection, "usage", "REAL")?;
-    add_column_if_missing(connection, "spend_window_days", "INTEGER")?;
+    add_column_if_missing(connection, "balance_snapshots", "account_credits", "REAL")?;
+    add_column_if_missing(connection, "balance_snapshots", "usage", "REAL")?;
+    add_column_if_missing(
+        connection,
+        "balance_snapshots",
+        "spend_window_days",
+        "INTEGER",
+    )?;
+    // Null means "use the app default", which is not the same as a threshold of
+    // zero and must not be confused with one.
+    add_column_if_missing(connection, "providers", "low_balance_threshold", "REAL")?;
 
     if !column_exists(connection, "balance_snapshots", "basis")? {
-        add_column_if_missing(connection, "basis", "TEXT NOT NULL DEFAULT 'usage'")?;
+        add_column_if_missing(
+            connection,
+            "balance_snapshots",
+            "basis",
+            "TEXT NOT NULL DEFAULT 'usage'",
+        )?;
 
         // Rows written before `basis` existed. Account credits identify
         // themselves; everything else was either spend or a cap, and the two
@@ -920,6 +946,139 @@ pub fn forget_key(provider: &str) -> Result<()> {
         Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
         Err(error) => Err(error).context("could not remove the key from the OS keychain"),
     }
+}
+
+/// Poll interval used until someone changes it, in minutes.
+pub const DEFAULT_POLL_INTERVAL_MINUTES: u32 = 30;
+
+/// Low-balance threshold used for any provider without its own.
+pub const DEFAULT_LOW_BALANCE_THRESHOLD: f64 = 2.0;
+
+/// Settings that apply to the whole app rather than to one provider.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Settings {
+    /// How often the background poller checks every provider.
+    pub poll_interval_minutes: u32,
+    /// Balance below which a provider counts as low, unless it has its own.
+    pub low_balance_threshold: f64,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            poll_interval_minutes: DEFAULT_POLL_INTERVAL_MINUTES,
+            low_balance_threshold: DEFAULT_LOW_BALANCE_THRESHOLD,
+        }
+    }
+}
+
+const SETTING_POLL_INTERVAL: &str = "poll_interval_minutes";
+const SETTING_LOW_THRESHOLD: &str = "low_balance_threshold";
+
+/// Read the stored settings, falling back to the defaults.
+///
+/// A key/value table rather than a one-row table, so adding a setting does not
+/// need a migration. Unknown keys are ignored rather than rejected, so this can
+/// read a database written by a newer build.
+pub fn load_settings(connection: &Connection) -> Result<Settings> {
+    let mut settings = Settings::default();
+    let mut statement = connection.prepare("SELECT key, value FROM settings")?;
+
+    let rows = statement.query_map([], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+    })?;
+
+    for row in rows {
+        let (key, value) = row?;
+
+        match key.as_str() {
+            // Clamped, because a stored zero would turn the poller into a spin
+            // loop against a paid API.
+            SETTING_POLL_INTERVAL => {
+                if let Ok(minutes) = value.parse::<u32>() {
+                    settings.poll_interval_minutes = minutes.max(1);
+                }
+            }
+            SETTING_LOW_THRESHOLD => {
+                if let Ok(threshold) = value.parse::<f64>() {
+                    settings.low_balance_threshold = threshold;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    Ok(settings)
+}
+
+pub fn save_settings(connection: &Connection, settings: &Settings) -> Result<()> {
+    let pairs = [
+        (
+            SETTING_POLL_INTERVAL,
+            settings.poll_interval_minutes.max(1).to_string(),
+        ),
+        (
+            SETTING_LOW_THRESHOLD,
+            settings.low_balance_threshold.to_string(),
+        ),
+    ];
+
+    for (key, value) in pairs {
+        connection.execute(
+            "INSERT INTO settings (key, value) VALUES (?1, ?2)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            params![key, value],
+        )?;
+    }
+
+    Ok(())
+}
+
+/// Each provider's own threshold, `None` where it has not been overridden.
+pub fn provider_thresholds(connection: &Connection) -> Result<Vec<(String, Option<f64>)>> {
+    let mut statement =
+        connection.prepare("SELECT name, low_balance_threshold FROM providers ORDER BY id")?;
+
+    let rows = statement.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?;
+
+    rows.collect::<rusqlite::Result<Vec<_>>>()
+        .context("could not read provider thresholds")
+}
+
+pub fn set_provider_threshold(
+    connection: &Connection,
+    provider: &str,
+    threshold: Option<f64>,
+) -> Result<()> {
+    let changed = connection.execute(
+        "UPDATE providers SET low_balance_threshold = ?1 WHERE name = ?2",
+        params![threshold, provider],
+    )?;
+
+    if changed == 0 {
+        return Err(anyhow!("no provider named {provider}"));
+    }
+
+    Ok(())
+}
+
+/// The threshold that applies to a provider: its own, or the app default.
+///
+/// The tray and the dashboard both go through this, so a provider cannot be low
+/// in one place and fine in the other.
+pub fn effective_threshold(settings: &Settings, provider: Option<f64>) -> f64 {
+    provider.unwrap_or(settings.low_balance_threshold)
+}
+
+/// Every provider's effective threshold, already resolved against the default.
+pub fn resolved_thresholds(connection: &Connection) -> Result<Vec<(String, f64)>> {
+    let settings = load_settings(connection)?;
+
+    Ok(provider_thresholds(connection)?
+        .into_iter()
+        .map(|(name, own)| (name, effective_threshold(&settings, own)))
+        .collect())
 }
 
 #[cfg(test)]
@@ -1223,6 +1382,130 @@ mod tests {
         assert_eq!(rejected.balance(), None);
         // A stored key is only ever left alone in this case.
         assert_eq!(rejected.message(), Some("refused"));
+    }
+
+    #[test]
+    fn settings_fall_back_to_their_defaults() {
+        let connection = memory_database();
+        let settings = load_settings(&connection).expect("settings");
+
+        assert_eq!(
+            settings.poll_interval_minutes,
+            DEFAULT_POLL_INTERVAL_MINUTES
+        );
+        assert_eq!(
+            settings.low_balance_threshold,
+            DEFAULT_LOW_BALANCE_THRESHOLD
+        );
+    }
+
+    #[test]
+    fn settings_survive_a_round_trip() {
+        let connection = memory_database();
+
+        save_settings(
+            &connection,
+            &Settings {
+                poll_interval_minutes: 15,
+                low_balance_threshold: 7.5,
+            },
+        )
+        .expect("saved");
+
+        let settings = load_settings(&connection).expect("settings");
+        assert_eq!(settings.poll_interval_minutes, 15);
+        assert_eq!(settings.low_balance_threshold, 7.5);
+
+        // Saving again overwrites rather than duplicating.
+        save_settings(&connection, &Settings::default()).expect("saved");
+        let settings = load_settings(&connection).expect("settings");
+        assert_eq!(
+            settings.poll_interval_minutes,
+            DEFAULT_POLL_INTERVAL_MINUTES
+        );
+
+        let count: i64 = connection
+            .query_row("SELECT count(*) FROM settings", [], |row| row.get(0))
+            .expect("count");
+        assert_eq!(count, 2, "one row per setting, not one per save");
+    }
+
+    #[test]
+    fn a_stored_interval_of_zero_is_clamped() {
+        // Zero would turn the poller into a spin loop against a paid API.
+        let connection = memory_database();
+        connection
+            .execute(
+                "INSERT INTO settings (key, value) VALUES ('poll_interval_minutes', '0')",
+                [],
+            )
+            .expect("stored");
+
+        assert_eq!(
+            load_settings(&connection)
+                .expect("settings")
+                .poll_interval_minutes,
+            1
+        );
+    }
+
+    #[test]
+    fn unknown_settings_keys_are_ignored() {
+        // A newer build may have written keys this one has never heard of.
+        let connection = memory_database();
+        connection
+            .execute(
+                "INSERT INTO settings (key, value) VALUES ('theme', 'midnight')",
+                [],
+            )
+            .expect("stored");
+
+        let settings = load_settings(&connection).expect("settings");
+        assert_eq!(
+            settings.poll_interval_minutes,
+            DEFAULT_POLL_INTERVAL_MINUTES
+        );
+    }
+
+    #[test]
+    fn a_provider_threshold_overrides_the_default() {
+        let connection = memory_database();
+        let settings = Settings {
+            poll_interval_minutes: 30,
+            low_balance_threshold: 2.0,
+        };
+
+        assert_eq!(effective_threshold(&settings, None), 2.0);
+        assert_eq!(effective_threshold(&settings, Some(5.0)), 5.0);
+
+        set_provider_threshold(&connection, "openrouter", Some(9.0)).expect("stored");
+        let thresholds = provider_thresholds(&connection).expect("thresholds");
+        assert_eq!(
+            thresholds.iter().find(|(name, _)| name == "openrouter"),
+            Some(&("openrouter".to_string(), Some(9.0)))
+        );
+
+        // Clearing it goes back to the default rather than to zero.
+        set_provider_threshold(&connection, "openrouter", None).expect("cleared");
+        let thresholds = provider_thresholds(&connection).expect("thresholds");
+        assert_eq!(
+            thresholds.iter().find(|(name, _)| name == "openrouter"),
+            Some(&("openrouter".to_string(), None))
+        );
+
+        assert!(set_provider_threshold(&connection, "nowhere", Some(1.0)).is_err());
+
+        // The resolved view is what the tray and the dashboard actually use.
+        set_provider_threshold(&connection, "cheaperinference", Some(7.0)).expect("stored");
+        let resolved = resolved_thresholds(&connection).expect("resolved");
+        assert_eq!(
+            resolved.iter().find(|(name, _)| name == "openrouter"),
+            Some(&("openrouter".to_string(), 2.0))
+        );
+        assert_eq!(
+            resolved.iter().find(|(name, _)| name == "cheaperinference"),
+            Some(&("cheaperinference".to_string(), 7.0))
+        );
     }
 
     #[test]

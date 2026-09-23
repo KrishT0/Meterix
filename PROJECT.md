@@ -50,9 +50,9 @@ Each step is meant to run before the next one starts.
 | 1 | Provider trait, OpenRouter and CheaperInference adapters, CLI | done |
 | 2 | SQLite snapshots, keychain key storage | done |
 | 3 | React dashboard over Tauri commands | done |
-| 4 | Background poller, tray icon, popover | done, except autostart |
-| 5 | Trend chart, per-provider threshold, OS notification | chart done, thresholds and notifications pending |
-| 6 | Settings, more providers, packaging | not started |
+| 4 | Background poller, tray icon, popover | done |
+| 5 | Trend chart, per-provider threshold, OS notification | chart and thresholds done, notifications pending |
+| 6 | Settings screen, more providers, packaging | settings done, more providers and packaging not started |
 
 ## Layout
 
@@ -87,6 +87,7 @@ app, and stored in the OS keychain rather than the database.
 meterix-core fetch [provider]              fetch one provider, or all of them
 meterix-core history <provider> [limit]    recent snapshots, newest first
 meterix-core set-key <provider> <key>      store an API key in the OS keychain
+meterix-core forget-key <provider>         remove a stored API key
 ```
 
 `limit` defaults to 20. At a 30-minute poll that is roughly ten hours, so pass a
@@ -100,13 +101,26 @@ As built, which is not what the original draft said:
 
 ```sql
 providers (
-  id, name
+  id, name, low_balance_threshold
 )
 
 balance_snapshots (
   id, provider_id, remaining, basis, account_credits, usage, recorded_at
 )
+
+settings (
+  key, value
+)
 ```
+
+`providers.low_balance_threshold` is nullable, and null is the normal case: it
+means "use the app default". Zero would mean "never warn me", which is a
+different thing, so the column stays null rather than defaulting to a number.
+
+`settings` is a free-form key/value table, currently holding
+`poll_interval_minutes` and `low_balance_threshold`. Unknown keys are ignored on
+read rather than being an error, so an older build opening a newer database
+loses nothing.
 
 The draft imagined a single `available_usd` column. That turned out to be
 impossible to fill honestly: OpenRouter has no single number that means
@@ -208,9 +222,13 @@ the key brings its chart back.
 **A failed fetch in one provider does not discard the others.** Each provider's
 error is reported on its own card and the rest still refresh.
 
-**Low is a hardcoded two dollars for now.** Real thresholds belong per provider,
-which needs a schema column. Until then one constant stands in and the header
-says which value is in use.
+**Low is a per-provider threshold, resolved in one place.** `effective_threshold`
+is the only thing that decides whether a balance counts as low, and it resolves a
+provider's own value against the app default. The resolved number travels out on
+the provider payload, so the tray and the dashboard read the same field instead of
+each keeping a constant. That duplication is gone: there is exactly one literal
+left (`DEFAULT_LOW_BALANCE_THRESHOLD` in the core) and no threshold in TypeScript
+at all.
 
 **OpenRouter balance precedence is account credits, then key cap, then usage.**
 Credits are the real balance. A key cap is not the account balance, but it is
@@ -288,12 +306,22 @@ can actually spend after reservations.
 
 ## Known gaps
 
-- Launch on system startup is not built, which is the last piece of v2.
-- The poll interval is fixed at 30 minutes. Making it configurable needs a
-  settings column and a settings screen.
-- The low threshold is two dollars, duplicated in Rust for the tray and in
-  TypeScript for the card tinting, because the tray has to colour itself with no
-  window open. Both go when thresholds become per-provider data.
+- Launch at login is built and verified, but enabling it from a `tauri dev` run
+  registers the **debug binary** as the login item, so the entry stops working
+  once that build is cleaned. It writes the right path when the app is installed;
+  treat it as untrustworthy until packaging exists.
+- The poll interval is configurable from the settings screen, in the range
+  1-1440 minutes. Changing it wakes the poller's sleep rather than waiting out
+  the old interval, so the next check happens on the new schedule.
+- The low threshold is per provider now, resolved by `effective_threshold`. The
+  header shows a single number only when every provider agrees on one, and says
+  "thresholds per provider" otherwise, because printing one of two different
+  numbers would be a quiet lie.
+- The chart fills each series from its line down to the bottom of the plot, and
+  draws the gridlines underneath the fills. Once more than a handful of readings
+  exist the fills cover the whole plot and the gridlines with it, so the chart
+  reads as a wall of colour rather than a trend. Filling from zero is the wrong
+  choice for balances that never approach zero. Not fixed.
 - Nothing records *which* key produced a snapshot, only which provider. Swapping
   an account mid-history splices two accounts into one trend line.
 - "Remove a provider" removes the keychain entry but not an environment

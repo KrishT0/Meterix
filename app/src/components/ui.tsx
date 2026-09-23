@@ -50,11 +50,11 @@ export const tones: Record<Tone, ToneStyle> = {
 export type Health = 'ok' | 'low' | 'error' | 'unknown'
 
 /**
- * Thresholds belong per provider, which needs a schema change. Until then one
- * default stands in for all of them.
+ * Health from the balance against the provider's own threshold.
+ *
+ * The threshold arrives with the provider rather than living here, so the tray
+ * and the dashboard cannot disagree about what counts as low.
  */
-export const LOW_BALANCE_THRESHOLD = 2
-
 export function healthOf(
   provider: ProviderOverview,
   outcome: RefreshOutcome | undefined,
@@ -63,7 +63,7 @@ export function healthOf(
   if (!provider.configured) return 'unknown'
   // A usage figure is not a balance, so it cannot be judged against one.
   if (provider.basis === 'usage' || provider.balance === null) return 'unknown'
-  return provider.balance < LOW_BALANCE_THRESHOLD ? 'low' : 'ok'
+  return provider.balance < provider.threshold ? 'low' : 'ok'
 }
 
 export function toneOf(health: Health): Tone {

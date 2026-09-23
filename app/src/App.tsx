@@ -5,10 +5,10 @@ import { BalanceChart, type Series } from './components/BalanceChart'
 import { ProviderCard } from './components/ProviderCard'
 import { ProviderPicker } from './components/ProviderPicker'
 import { ProviderTable } from './components/ProviderTable'
+import { Settings } from './Settings'
 import {
   Button,
   Label,
-  LOW_BALANCE_THRESHOLD,
   Pill,
   RefreshIcon,
   StatusDot,
@@ -61,6 +61,7 @@ export default function App() {
   const [busy, setBusy] = useState(false)
   const [saving, setSaving] = useState(false)
   const [saveResult, setSaveResult] = useState<SaveKeyOutcome | null>(null)
+  const [view, setView] = useState<'dashboard' | 'settings'>('dashboard')
   const [ready, setReady] = useState(false)
   const [keyDraft, setKeyDraft] = useState('')
   const [chosen, setChosen] = useState<string | null>(null)
@@ -238,6 +239,39 @@ export default function App() {
     // The window is the app. No backdrop strip, no rounded panel sitting inside
     // a page, so the content meets the window edges directly.
     <div className="flex min-h-full flex-col bg-surface">
+      {view === 'settings' ? (
+        <>
+          {/* Breadcrumb rather than reusing the dashboard header, so leaving is
+              at the top instead of below every setting. */}
+          <div className="flex items-center gap-2.5 border-b border-line px-5 py-3">
+            <button
+              type="button"
+              onClick={() => setView('dashboard')}
+              className="flex items-center gap-1.5 text-ink-dim transition hover:text-ink"
+            >
+              <svg
+                width="11"
+                height="11"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.4"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <path d="m15 18-6-6 6-6" />
+              </svg>
+              <span className="text-[12px]">Dashboard</span>
+            </button>
+            <span className="text-line-strong">/</span>
+            <span className="text-[13px] font-semibold tracking-[-0.01em]">Settings</span>
+          </div>
+
+          <Settings onClose={() => setView('dashboard')} />
+        </>
+      ) : (
+        <>
       <header className="flex items-center gap-2.5 border-b border-line px-5 py-3">
         <span className="text-[13px] font-semibold tracking-[-0.01em]">Meterix</span>
 
@@ -254,6 +288,27 @@ export default function App() {
             <span className="flex items-center gap-2">
               <RefreshIcon className={busy ? 'animate-spin' : ''} />
               {busy ? 'Refreshing' : 'Refresh'}
+            </span>
+          </Button>
+          {/* Labelled rather than a bare gear: there is only one other control
+              up here, and an unlabelled icon would be guesswork. */}
+          <Button variant="secondary" onClick={() => setView('settings')}>
+            <span className="flex items-center gap-2">
+              <svg
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.9"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <circle cx="12" cy="12" r="3" />
+                <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1A1.7 1.7 0 0 0 9 19.4a1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z" />
+              </svg>
+              Settings
             </span>
           </Button>
         </div>
@@ -328,7 +383,8 @@ export default function App() {
             {problems.length > 0 ? (
               <div className="mt-5 flex items-center gap-2 rounded-lg border border-amber-line bg-amber-tint px-3 py-2">
                 <span className="num text-[12px] text-amber-dim">
-                  {problems.length} provider{problems.length === 1 ? '' : 's'} need attention
+                  {problems.length} provider{problems.length === 1 ? '' : 's'}{' '}
+                  {problems.length === 1 ? 'needs' : 'need'} attention
                 </span>
               </div>
             ) : null}
@@ -339,7 +395,12 @@ export default function App() {
                 {configured.length} of {supported.length} configured
               </div>
               <div className="label-sm mt-1">
-                low below {usd(LOW_BALANCE_THRESHOLD).slice(1)}
+                {/* One number only when every provider agrees on one. */}
+                {shown.length === 0
+                  ? '—'
+                  : shown.every((row) => row.threshold === shown[0]?.threshold)
+                    ? `low below ${usd(shown[0]?.threshold ?? null).slice(1)}`
+                    : 'thresholds per provider'}
               </div>
             </div>
           </div>
@@ -475,8 +536,10 @@ export default function App() {
           </>
         ) : null}
       </div>
+        </>
+      )}
 
-      {configured.length > 0 ? (
+      {view === 'dashboard' && configured.length > 0 ? (
         <footer className="flex items-center gap-3 border-t border-line px-5 py-2.5">
           <span className="num text-[11px] text-ink-muted">
             last reading {relativeTime(lastReading ?? null)} · {readingsCount(readings)} snapshots
