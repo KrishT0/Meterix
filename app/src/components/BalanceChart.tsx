@@ -28,6 +28,11 @@ export interface Series {
   displayName: string
   tone: Tone
   points: SnapshotRow[]
+  /**
+   * The credential currently configured for this provider, so readings from a
+   * different account are not drawn as one continuous line.
+   */
+  keyFingerprint: string | null
 }
 
 const TICK_TARGET = 4
@@ -78,14 +83,41 @@ function fittedRange(values: number[]): { lo: number; hi: number } {
  * on the same axis as a balance would produce a chart that looks healthy while
  * the account empties, so those rows are excluded and counted instead.
  */
-function balancePoints(series: Series[]): { series: Series; points: SnapshotRow[] }[] {
-  return series.map((entry) => ({
-    series: entry,
-    points: entry.points
-      .filter((point) => point.basis !== 'usage')
-      .slice()
-      .sort((a, b) => parseUtc(a.recordedAt).getTime() - parseUtc(b.recordedAt).getTime()),
-  }))
+/**
+ * Only rows that belong on this provider's line get plotted.
+ *
+ * Two kinds are dropped. A `usage` row holds spend so far, which climbs as
+ * money runs out, so drawing it on a balance axis shows a healthy chart while
+ * the account empties. A row from a different credential belongs to a different
+ * account, and joining the two draws one line through two balances, which is
+ * simply a lie about what happened.
+ */
+function balancePoints(series: Series[]): {
+  series: Series
+  points: SnapshotRow[]
+  usageExcluded: number
+  otherKeyExcluded: number
+}[] {
+  return series.map((entry) => {
+    const usable = entry.points.filter((point) => point.basis !== 'usage')
+    // Rows written before fingerprints existed cannot be attributed either way,
+    // so they are kept rather than thrown away.
+    const points = usable.filter(
+      (point) =>
+        point.keyFingerprint === null ||
+        entry.keyFingerprint === null ||
+        point.keyFingerprint === entry.keyFingerprint,
+    )
+
+    return {
+      series: entry,
+      points: points
+        .slice()
+        .sort((a, b) => parseUtc(a.recordedAt).getTime() - parseUtc(b.recordedAt).getTime()),
+      usageExcluded: entry.points.length - usable.length,
+      otherKeyExcluded: usable.length - points.length,
+    }
+  })
 }
 
 const timeOf = (point: SnapshotRow) => parseUtc(point.recordedAt).getTime()
@@ -138,10 +170,8 @@ export function BalanceChart({ series }: { series: Series[] }) {
   const [hoverTime, setHoverTime] = useState<number | null>(null)
 
   const plotted = balancePoints(series)
-  const excluded = series.reduce(
-    (total, entry) => total + entry.points.filter((point) => point.basis === 'usage').length,
-    0,
-  )
+  const usageExcluded = plotted.reduce((total, entry) => total + entry.usageExcluded, 0)
+  const otherKeyExcluded = plotted.reduce((total, entry) => total + entry.otherKeyExcluded, 0)
   const all = plotted.flatMap((entry) => entry.points)
 
   const legend = (
@@ -155,9 +185,15 @@ export function BalanceChart({ series }: { series: Series[] }) {
           <span className="label-sm text-ink-dim">{entry.displayName}</span>
         </span>
       ))}
-      {excluded > 0 ? (
+      {usageExcluded > 0 ? (
         <span className="label-sm text-ink-muted">
-          {excluded} usage reading{excluded === 1 ? '' : 's'} excluded
+          {usageExcluded} usage reading{usageExcluded === 1 ? '' : 's'} excluded
+        </span>
+      ) : null}
+      {/* Says why history looks short rather than leaving a gap unexplained. */}
+      {otherKeyExcluded > 0 ? (
+        <span className="label-sm text-ink-muted">
+          {otherKeyExcluded} reading{otherKeyExcluded === 1 ? '' : 's'} from another key not shown
         </span>
       ) : null}
     </div>

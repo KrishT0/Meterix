@@ -25,6 +25,8 @@ export interface ProviderOverview {
   recordedAt: string | null
   /** Already resolved from this provider's override or the app default. */
   threshold: number
+  /** Labels the credential in use right now. Never the key itself. */
+  keyFingerprint: string | null
 }
 
 export interface RefreshOutcome {
@@ -47,6 +49,8 @@ export interface SnapshotRow {
   usage: number | null
   spendWindowDays: number | null
   remaining: number
+  /** Labels the credential that produced this reading. Null on older rows. */
+  keyFingerprint: string | null
 }
 
 /** Everything the settings screen needs. */

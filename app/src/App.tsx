@@ -187,6 +187,7 @@ export default function App() {
     displayName: row.displayName,
     tone: index === 0 ? 'teal' : 'copper',
     points: readings[row.name] ?? [],
+    keyFingerprint: row.keyFingerprint,
   }))
 
   async function addProvider() {

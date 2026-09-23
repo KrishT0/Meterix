@@ -252,6 +252,21 @@ resolved per provider rather than assuming one shared timestamp.
 date, so five date labels read identically and the axis tells you nothing. Under
 two days the labels are times instead.
 
+**Snapshots record which credential produced them.** The database stores the
+first 8 bytes of the key's SHA-256, never the key. Swapping a key for a different
+account used to splice two accounts into one trend line, and the chart drew that
+as a single continuous balance. The chart now plots only readings from the
+credential in use and says how many it left out, so a restart after a key change
+is explained rather than looking like lost history.
+
+Rows written before fingerprints existed carry null and are kept, because they
+cannot be attributed either way and discarding them would throw away real
+readings. That concession only applies to databases that predate the column;
+nothing has shipped.
+
+The fingerprint is a label, not a security boundary. It is not reversible and it
+is not used for anything except telling one key apart from another.
+
 **OpenRouter balance precedence is account credits, then key cap, then usage.**
 Credits are the real balance. A key cap is not the account balance, but it is
 still money the key can spend, so it outranks spend-so-far. Usage is last and
@@ -335,8 +350,6 @@ can actually spend after reservations.
 - No OS notification on a low balance. The tray turns amber and the dashboard
   shows a callout, but nothing reaches you when the window is closed. This is the
   only piece of v2 still unbuilt.
-- Nothing records *which* key produced a snapshot, only which provider. Swapping
-  an account mid-history splices two accounts into one trend line.
 - "Remove a provider" removes the keychain entry but not an environment
   variable, so a provider can stay configured after being removed.
 - The popover reads the database when it mounts and on every refresh event, not

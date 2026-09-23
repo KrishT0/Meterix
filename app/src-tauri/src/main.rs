@@ -22,7 +22,8 @@ use tauri::{AppHandle, Emitter, Manager, WindowEvent};
 use meterix_core::{
     Basis, DEFAULT_POLL_INTERVAL_MINUTES, PROVIDERS, Settings, Snapshot, credential_hint,
     display_name, effective_threshold, fetch_balances, forget_key, history, load_settings,
-    open_database, provider_thresholds, save_settings as persist_settings, save_snapshot,
+    open_database, provider_fingerprint, provider_thresholds, save_settings as persist_settings,
+    save_snapshot,
     save_verified_key, set_provider_threshold as store_threshold,
 };
 
@@ -49,6 +50,9 @@ struct ProviderOverview {
     /// its own override or the app default. Sent so the dashboard never has to
     /// hold a threshold of its own.
     threshold: f64,
+    /// Labels the credential in use, so the chart can plot one account's history
+    /// rather than splicing two together. Never the key itself.
+    key_fingerprint: Option<String>,
 }
 
 /// What one provider did on a refresh. Failures travel alongside successes
@@ -103,6 +107,7 @@ fn overview() -> Result<Vec<ProviderOverview>, String> {
                 spend_window_days: latest.as_ref().and_then(|snapshot| snapshot.spend_window_days),
                 recorded_at: latest.map(|snapshot| snapshot.recorded_at),
                 threshold: effective_threshold(&settings, override_threshold),
+                key_fingerprint: provider_fingerprint(name),
             })
         })
         .collect()

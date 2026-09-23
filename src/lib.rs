@@ -21,6 +21,7 @@ use rusqlite::params;
 pub use rusqlite::Connection;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
 pub const KEYRING_SERVICE: &str = "meterix-core";
 pub const PROVIDERS: [&str; 2] = ["openrouter", "cheaperinference"];
@@ -102,6 +103,8 @@ pub struct Balance {
     /// OpenRouter reports it. `Some(n)` means the last n days, which is the
     /// only thing CheaperInference offers. Never add the two together.
     pub spend_window_days: Option<u32>,
+    /// Which credential produced this. See [`key_fingerprint`].
+    pub key_fingerprint: Option<String>,
 }
 
 /// One stored row of `balance_snapshots`.
@@ -114,6 +117,9 @@ pub struct Snapshot {
     pub usage: Option<f64>,
     pub spend_window_days: Option<u32>,
     pub remaining: f64,
+    /// Which credential produced this reading, or `None` for rows written
+    /// before fingerprints existed.
+    pub key_fingerprint: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -315,6 +321,8 @@ fn openrouter_balance(
         usage: key_info.usage,
         // OpenRouter's usage is a running total, not a window.
         spend_window_days: None,
+        // Filled in by the caller, which is where the key is known.
+        key_fingerprint: None,
     })
 }
 
@@ -405,6 +413,8 @@ impl Provider for CheaperInference {
             account_credits: Some(response.available_usd),
             usage: spend.as_ref().map(|usage| usage.billed_usd),
             spend_window_days: spend.map(|usage| usage.days),
+            // Filled in by the caller, which is where the key is known.
+            key_fingerprint: None,
         })
     }
 }
@@ -460,9 +470,38 @@ pub fn display_name(provider: &str) -> &str {
 ///
 /// Enough to tell two keys apart, and to notice one filed under the wrong
 /// provider, without putting the secret on screen.
+/// A stable, non-reversible label for an API key.
+///
+/// Snapshots record which credential produced them, so replacing a key with a
+/// different account does not splice two accounts into one trend line. The key
+/// itself must never reach the database, so only the first 8 bytes of its
+/// SHA-256 are kept: enough to tell two keys apart, useless for recovering
+/// either one.
+///
+/// Not a security boundary. It is a label that lets history be attributed.
+pub fn key_fingerprint(key: &str) -> String {
+    let digest = Sha256::digest(key.as_bytes());
+    let mut out = String::with_capacity(16);
+
+    for byte in &digest[..8] {
+        out.push_str(&format!("{byte:02x}"));
+    }
+
+    out
+}
+
 pub fn credential_hint(provider: &str) -> Option<String> {
     let key = credential(provider, env_var(provider)?).ok()?;
     Some(mask_key(&key))
+}
+
+/// The fingerprint of the credential a provider is configured with right now.
+///
+/// `None` when no key is stored, which is not the same as an empty fingerprint:
+/// nothing is configured, so no reading can belong to it.
+pub fn provider_fingerprint(provider: &str) -> Option<String> {
+    let key = credential(provider, env_var(provider)?).ok()?;
+    Some(key_fingerprint(&key))
 }
 
 fn mask_key(key: &str) -> String {
@@ -643,11 +682,18 @@ fn credential(provider: &str, env_name: &str) -> Result<String, ProviderError> {
     env::var(env_name).map_err(|_| ProviderError::MissingCredential(provider.to_string()))
 }
 
-fn build_provider(name: &str, client: &Client) -> Result<Box<dyn Provider>, ProviderError> {
+fn build_provider(
+    name: &str,
+    client: &Client,
+) -> Result<(Box<dyn Provider>, String), ProviderError> {
     let env_name = env_var(name).ok_or_else(|| unknown_provider(name))?;
     let key = credential(name, env_name)?;
+    // Fingerprinted here, where the key is in hand and before it is dropped.
+    let fingerprint = key_fingerprint(&key);
 
-    provider_with_key(name, client, key).ok_or_else(|| unknown_provider(name))
+    provider_with_key(name, client, key)
+        .map(|provider| (provider, fingerprint))
+        .ok_or_else(|| unknown_provider(name))
 }
 
 /// One provider's result. `Err` is per-provider, so one failure does not hide
@@ -677,7 +723,13 @@ pub async fn fetch_balances(only: Option<&str>) -> Result<Vec<Outcome>> {
 
     for name in names {
         let result = match build_provider(name, &client) {
-            Ok(provider) => provider.fetch_balance().await,
+            Ok((provider, fingerprint)) => match provider.fetch_balance().await {
+                Ok(mut balance) => {
+                    balance.key_fingerprint = Some(fingerprint);
+                    Ok(balance)
+                }
+                Err(error) => Err(error),
+            },
             Err(error) => Err(error),
         };
         outcomes.push((name, result));
@@ -791,6 +843,7 @@ fn initialize_database(connection: &Connection) -> Result<()> {
 
     add_column_if_missing(connection, "balance_snapshots", "account_credits", "REAL")?;
     add_column_if_missing(connection, "balance_snapshots", "usage", "REAL")?;
+    add_column_if_missing(connection, "balance_snapshots", "key_fingerprint", "TEXT")?;
     add_column_if_missing(
         connection,
         "balance_snapshots",
@@ -834,8 +887,9 @@ pub fn save_snapshot(connection: &Connection, balance: &Balance) -> Result<()> {
     let changed = connection.execute(
         "
         INSERT INTO balance_snapshots
-            (provider_id, remaining, basis, account_credits, usage, spend_window_days)
-        SELECT id, ?1, ?2, ?3, ?4, ?5 FROM providers WHERE name = ?6
+            (provider_id, remaining, basis, account_credits, usage, spend_window_days,
+             key_fingerprint)
+        SELECT id, ?1, ?2, ?3, ?4, ?5, ?6 FROM providers WHERE name = ?7
         ",
         params![
             balance.remaining,
@@ -843,6 +897,7 @@ pub fn save_snapshot(connection: &Connection, balance: &Balance) -> Result<()> {
             balance.account_credits,
             balance.usage,
             balance.spend_window_days,
+            balance.key_fingerprint,
             balance.provider
         ],
     )?;
@@ -865,7 +920,8 @@ pub fn history(connection: &Connection, provider: &str, limit: usize) -> Result<
                balance_snapshots.account_credits,
                balance_snapshots.usage,
                balance_snapshots.spend_window_days,
-               balance_snapshots.remaining
+               balance_snapshots.remaining,
+               balance_snapshots.key_fingerprint
         FROM balance_snapshots
         JOIN providers ON providers.id = balance_snapshots.provider_id
         WHERE providers.name = ?1
@@ -884,6 +940,7 @@ pub fn history(connection: &Connection, provider: &str, limit: usize) -> Result<
             usage: row.get(3)?,
             spend_window_days: row.get(4)?,
             remaining: row.get(5)?,
+            key_fingerprint: row.get(6)?,
         })
     })?;
 
@@ -1106,6 +1163,7 @@ mod tests {
             account_credits: credits,
             usage,
             spend_window_days: None,
+            key_fingerprint: None,
         }
     }
 
@@ -1162,6 +1220,43 @@ mod tests {
     }
 
     #[test]
+    fn a_fingerprint_is_stable_and_carries_nothing_of_the_key() {
+        let key = "sk-or-v1-abcdefghijklmnopqrstuvwxyz0123456789";
+        let fingerprint = key_fingerprint(key);
+
+        assert_eq!(fingerprint.len(), 16, "8 bytes written as hex");
+        assert!(fingerprint.chars().all(|c| c.is_ascii_hexdigit()));
+
+        // Stable, so every reading from one key groups together.
+        assert_eq!(fingerprint, key_fingerprint(key));
+        // A different key gets a different label.
+        assert_ne!(fingerprint, key_fingerprint("sk-or-v1-something-else"));
+        // And none of the key survives the trip.
+        assert!(!fingerprint.contains("abcdef"));
+        assert!(!key.contains(&fingerprint));
+    }
+
+    #[test]
+    fn snapshots_remember_which_key_produced_them() {
+        let connection = memory_database();
+
+        // Two readings, two accounts, one provider.
+        for (key, value) in [("key-one", 6.4), ("key-two", 12.0)] {
+            let mut reading = balance(Basis::AccountCredits, value, Some(value), None);
+            reading.key_fingerprint = Some(key_fingerprint(key));
+            save_snapshot(&connection, &reading).expect("saved");
+        }
+
+        let rows = history(&connection, "openrouter", 10).expect("history");
+        assert_eq!(rows.len(), 2);
+
+        // This is the whole point: without it a chart draws one line through
+        // two different accounts and quietly reports it as one balance.
+        assert!(rows[0].key_fingerprint.is_some());
+        assert_ne!(rows[0].key_fingerprint, rows[1].key_fingerprint);
+    }
+
+    #[test]
     fn history_honours_the_limit_and_keeps_providers_apart() {
         let connection = memory_database();
 
@@ -1186,6 +1281,7 @@ mod tests {
                 account_credits: Some(99.0),
                 usage: None,
                 spend_window_days: None,
+                key_fingerprint: None,
             },
         )
         .expect("saved");
