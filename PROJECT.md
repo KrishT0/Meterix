@@ -228,7 +228,9 @@ provider's own value against the app default. The resolved number travels out on
 the provider payload, so the tray and the dashboard read the same field instead of
 each keeping a constant. That duplication is gone: there is exactly one literal
 left (`DEFAULT_LOW_BALANCE_THRESHOLD` in the core) and no threshold in TypeScript
-at all.
+at all. The header prints a single "low below" figure only when every provider
+agrees on one, and says "thresholds per provider" otherwise, because showing one
+of two different numbers would be a quiet lie.
 
 **The chart axis is fitted to the readings, not to zero.** A balance moving
 between $6 and $12 drawn on a $0-$12 axis is a nearly flat line, which hides
@@ -330,13 +332,9 @@ can actually spend after reservations.
   registers the **debug binary** as the login item, so the entry stops working
   once that build is cleaned. It writes the right path when the app is installed;
   treat it as untrustworthy until packaging exists.
-- The poll interval is configurable from the settings screen, in the range
-  1-1440 minutes. Changing it wakes the poller's sleep rather than waiting out
-  the old interval, so the next check happens on the new schedule.
-- The low threshold is per provider now, resolved by `effective_threshold`. The
-  header shows a single number only when every provider agrees on one, and says
-  "thresholds per provider" otherwise, because printing one of two different
-  numbers would be a quiet lie.
+- No OS notification on a low balance. The tray turns amber and the dashboard
+  shows a callout, but nothing reaches you when the window is closed. This is the
+  only piece of v2 still unbuilt.
 - Nothing records *which* key produced a snapshot, only which provider. Swapping
   an account mid-history splices two accounts into one trend line.
 - "Remove a provider" removes the keychain entry but not an environment
@@ -349,7 +347,6 @@ can actually spend after reservations.
 - Light mode is not built. The palette in `app/src/index.css` is dark only.
 - The window keeps its native title bar rather than the reference design's
   custom one, so a Windows title bar sits above the app header.
-- No settings screen, despite a button for one in the mockup.
 - "Remove a provider" removes a key. Since the set of supported providers is
   compiled in, that is all it can mean until providers are data.
 - A headless or minimal Linux install may have no Secret Service, so `keyring`
