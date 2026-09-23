@@ -386,6 +386,15 @@ nothing is actually wrong. It stays until a key is saved instead of timing out,
 because it is the only instruction the app gives at that point and one that fades
 leaves a first-run user looking at a blank page.
 
+**The tray stays grey when no key is stored.** `status_colour` treated any failed
+outcome as an error, so a fresh install — where every provider fails with
+`missing_credential` — turned the icon copper, reporting a fault where there was
+only an app nobody had set up yet. A failed outcome now only forces
+`COLOUR_ERROR` when its `error_kind` is not `MISSING_CREDENTIAL_KIND`;
+`unauthorized` and `forbidden` still do. That is the same line the notifications
+already drew, and the identifier is a named constant in the core rather than a
+literal in both places, so the tray cannot drift from the string `kind()` returns.
+
 ## Provider notes
 
 Checked against the live APIs rather than the documentation, because the two

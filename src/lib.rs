@@ -151,13 +151,20 @@ pub enum ProviderError {
     BadResponse(String),
 }
 
+/// The identifier `kind()` returns when no key is stored at all.
+///
+/// Named rather than written out at each call site, because callers that only
+/// hold the recorded string — the tray colour, for one — have to recognise it
+/// without repeating the literal, and a rename would otherwise go unnoticed.
+pub const MISSING_CREDENTIAL_KIND: &str = "missing_credential";
+
 impl ProviderError {
     /// Stable identifier for callers that branch on the failure, such as the
     /// dashboard's error copy and the tray icon's colour. Never reword these
     /// without changing the consumers.
     pub fn kind(&self) -> &'static str {
         match self {
-            ProviderError::MissingCredential(_) => "missing_credential",
+            ProviderError::MissingCredential(_) => MISSING_CREDENTIAL_KIND,
             ProviderError::Unauthorized => "unauthorized",
             ProviderError::Forbidden(_) => "forbidden",
             ProviderError::RateLimited => "rate_limited",

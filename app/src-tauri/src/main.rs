@@ -21,11 +21,11 @@ use tauri::{AppHandle, Emitter, Manager, WindowEvent};
 use tauri_plugin_notification::NotificationExt;
 
 use meterix_core::{
-    Basis, DEFAULT_POLL_INTERVAL_MINUTES, Notice, PROVIDERS, Settings, Snapshot, credential_hint,
-    display_name, effective_threshold, fetch_balances, forget_key, history, load_settings,
-    open_database, provider_fingerprint, provider_thresholds, save_settings as persist_settings,
-    save_snapshot, save_verified_key, set_provider_threshold as store_threshold,
-    take_notifications,
+    Basis, DEFAULT_POLL_INTERVAL_MINUTES, MISSING_CREDENTIAL_KIND, Notice, PROVIDERS, Settings,
+    Snapshot, credential_hint, display_name, effective_threshold, fetch_balances, forget_key,
+    history, load_settings, open_database, provider_fingerprint, provider_thresholds,
+    save_settings as persist_settings, save_snapshot, save_verified_key,
+    set_provider_threshold as store_threshold, take_notifications,
 };
 
 /// One provider, as the dashboard needs it: whether a key exists, and the most
@@ -381,7 +381,16 @@ fn resolved_threshold_map(
 /// has room to say. One failing provider deserves more attention than another
 /// one being healthy.
 fn status_colour(outcomes: &[RefreshOutcome], thresholds: &HashMap<String, f64>) -> [u8; 3] {
-    if outcomes.iter().any(|outcome| !outcome.ok) {
+    // A missing key is not something the icon should shout about. A fresh
+    // install has no keys at all, and the dashboard already asks for one, so
+    // colouring the tray an error would report a fault where there is only an
+    // app nobody has set up yet. Same line the notifications draw: only a
+    // rejected credential is worth interrupting someone over.
+    let broken = outcomes.iter().any(|outcome| {
+        !outcome.ok && outcome.error_kind.as_deref() != Some(MISSING_CREDENTIAL_KIND)
+    });
+
+    if broken {
         return COLOUR_ERROR;
     }
 
