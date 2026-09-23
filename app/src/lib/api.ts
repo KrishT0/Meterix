@@ -57,6 +57,8 @@ export interface SnapshotRow {
 export interface SettingsView {
   pollIntervalMinutes: number
   lowBalanceThreshold: number
+  notifyLowBalance: boolean
+  notifyKeyErrors: boolean
   databasePath: string
   autostartEnabled: boolean
   providers: ProviderSetting[]
@@ -74,6 +76,8 @@ export interface ProviderSetting {
 export interface SettingsInput {
   pollIntervalMinutes: number
   lowBalanceThreshold: number
+  notifyLowBalance: boolean
+  notifyKeyErrors: boolean
 }
 
 export const settings = () => invoke<SettingsView>('settings')

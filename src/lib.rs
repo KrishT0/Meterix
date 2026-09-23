@@ -6,6 +6,7 @@
 //!
 //! API keys go to the OS keychain and never into the database.
 
+use std::collections::HashMap;
 use std::env;
 use std::error::Error;
 use std::fmt;
@@ -15,6 +16,7 @@ use anyhow::{Context, Result, anyhow};
 use async_trait::async_trait;
 use keyring::Entry;
 use reqwest::{Client, StatusCode};
+use rusqlite::OptionalExtension;
 use rusqlite::params;
 // Re-exported so the Tauri shell can name a connection without depending on
 // rusqlite itself, which would risk the two crates resolving different versions.
@@ -162,6 +164,21 @@ impl ProviderError {
             ProviderError::Unreachable(_) => "unreachable",
             ProviderError::BadResponse(_) => "bad_response",
         }
+    }
+
+    /// Whether this failure means the credential cannot be used, as opposed to
+    /// a problem that says nothing about the key at all.
+    ///
+    /// Only these are worth interrupting someone over. Telling a user their key
+    /// has stopped working when their wifi dropped is worse than saying nothing:
+    /// it sends them to rotate a key that was fine. A missing credential is
+    /// excluded too, because that is what a fresh install looks like and the
+    /// dashboard is already asking for one.
+    pub fn credential_is_broken(&self) -> bool {
+        matches!(
+            self,
+            ProviderError::Unauthorized | ProviderError::Forbidden(_)
+        )
     }
 }
 
@@ -853,6 +870,18 @@ fn initialize_database(connection: &Connection) -> Result<()> {
     // Null means "use the app default", which is not the same as a threshold of
     // zero and must not be confused with one.
     add_column_if_missing(connection, "providers", "low_balance_threshold", "REAL")?;
+    // What the user was last told, so an edge is only reported once. Zero rather
+    // than null for the below flag, deliberately: a provider that is already
+    // under its threshold the first time the app looks at it is news, and if the
+    // initial state were "unknown" the crossing would never happen and a fresh
+    // install would say nothing at all about a balance that was already low.
+    add_column_if_missing(
+        connection,
+        "providers",
+        "notified_below",
+        "INTEGER NOT NULL DEFAULT 0",
+    )?;
+    add_column_if_missing(connection, "providers", "notified_error_kind", "TEXT")?;
 
     if !column_exists(connection, "balance_snapshots", "basis")? {
         add_column_if_missing(
@@ -1019,6 +1048,10 @@ pub struct Settings {
     pub poll_interval_minutes: u32,
     /// Balance below which a provider counts as low, unless it has its own.
     pub low_balance_threshold: f64,
+    /// Whether crossing a threshold is worth an OS notification.
+    pub notify_low_balance: bool,
+    /// Whether a credential that stops working is worth one.
+    pub notify_key_errors: bool,
 }
 
 impl Default for Settings {
@@ -1026,12 +1059,32 @@ impl Default for Settings {
         Self {
             poll_interval_minutes: DEFAULT_POLL_INTERVAL_MINUTES,
             low_balance_threshold: DEFAULT_LOW_BALANCE_THRESHOLD,
+            // On by default, because the entire point of polling in the
+            // background is being told without having to go and look.
+            notify_low_balance: true,
+            notify_key_errors: true,
         }
     }
 }
 
 const SETTING_POLL_INTERVAL: &str = "poll_interval_minutes";
 const SETTING_LOW_THRESHOLD: &str = "low_balance_threshold";
+const SETTING_NOTIFY_LOW: &str = "notify_low_balance";
+const SETTING_NOTIFY_ERRORS: &str = "notify_key_errors";
+
+/// Stored as `1` or `0`. Anything else is ignored rather than guessed at, so a
+/// garbled row cannot quietly switch notifications off.
+fn parse_flag(value: &str) -> Option<bool> {
+    match value {
+        "1" | "true" => Some(true),
+        "0" | "false" => Some(false),
+        _ => None,
+    }
+}
+
+fn flag(value: bool) -> &'static str {
+    if value { "1" } else { "0" }
+}
 
 /// Read the stored settings, falling back to the defaults.
 ///
@@ -1062,6 +1115,16 @@ pub fn load_settings(connection: &Connection) -> Result<Settings> {
                     settings.low_balance_threshold = threshold;
                 }
             }
+            SETTING_NOTIFY_LOW => {
+                if let Some(on) = parse_flag(&value) {
+                    settings.notify_low_balance = on;
+                }
+            }
+            SETTING_NOTIFY_ERRORS => {
+                if let Some(on) = parse_flag(&value) {
+                    settings.notify_key_errors = on;
+                }
+            }
             _ => {}
         }
     }
@@ -1078,6 +1141,14 @@ pub fn save_settings(connection: &Connection, settings: &Settings) -> Result<()>
         (
             SETTING_LOW_THRESHOLD,
             settings.low_balance_threshold.to_string(),
+        ),
+        (
+            SETTING_NOTIFY_LOW,
+            flag(settings.notify_low_balance).to_string(),
+        ),
+        (
+            SETTING_NOTIFY_ERRORS,
+            flag(settings.notify_key_errors).to_string(),
         ),
     ];
 
@@ -1138,6 +1209,128 @@ pub fn resolved_thresholds(connection: &Connection) -> Result<Vec<(String, f64)>
         .collect())
 }
 
+/// Something worth interrupting the user about.
+///
+/// Structured rather than pre-worded, so the copy stays with the surface that
+/// shows it. Tests then assert on what happened rather than on a sentence, which
+/// does not have to be rewritten when the wording changes.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    tag = "kind"
+)]
+pub enum Notice {
+    LowBalance {
+        provider: String,
+        display_name: String,
+        remaining: f64,
+        threshold: f64,
+    },
+    KeyError {
+        provider: String,
+        display_name: String,
+        /// `ProviderError::kind()`, so the app can choose the right sentence
+        /// without parsing the message back out again. Named to match
+        /// `RefreshOutcome`, which carries the same thing.
+        error_kind: String,
+        message: String,
+    },
+}
+
+/// Work out which notices are due, and record that they have been sent.
+///
+/// "Take" rather than "check", because it consumes the edge instead of only
+/// describing it. A provider sitting below its threshold does not notify on every
+/// check, only on the one where it crossed; a broken key does not notify on every
+/// poll. The state lives in the database, so closing and reopening the app does
+/// not replay a warning for a balance that has been low for days.
+///
+/// A provider that fails to report is left exactly as it was. Its balance is
+/// unknown, and unknown is not the same as fine: recording a blip as "no longer
+/// low" would re-fire the warning the moment the balance became readable again.
+pub fn take_notifications(
+    connection: &Connection,
+    outcomes: &[Outcome],
+    settings: &Settings,
+) -> Result<Vec<Notice>> {
+    // Resolved against the settings passed in, never the ones stored. The caller
+    // may have just changed a threshold and not saved it yet, and a notification
+    // has to use the threshold the user is actually looking at.
+    let own: HashMap<String, Option<f64>> = provider_thresholds(connection)?.into_iter().collect();
+
+    let mut notices = Vec::new();
+
+    for (name, result) in outcomes {
+        let name = *name;
+
+        let previous = connection
+            .query_row(
+                "SELECT notified_below, notified_error_kind FROM providers WHERE name = ?1",
+                params![name],
+                |row| Ok((row.get::<_, i64>(0)?, row.get::<_, Option<String>>(1)?)),
+            )
+            .optional()?;
+
+        // A provider the database has never heard of is not something to guess
+        // about; a notice naming the wrong state is worse than none.
+        let Some((was_below, told_about_error)) = previous else {
+            continue;
+        };
+
+        match result {
+            Ok(balance) => {
+                let threshold = effective_threshold(settings, own.get(name).copied().flatten());
+
+                // A spend figure is not money left, so comparing one to a
+                // threshold would warn about a number that means the opposite.
+                let is_below = balance.basis.is_balance() && balance.remaining < threshold;
+
+                if settings.notify_low_balance && is_below && was_below == 0 {
+                    notices.push(Notice::LowBalance {
+                        provider: name.to_string(),
+                        display_name: display_name(name).to_string(),
+                        remaining: balance.remaining,
+                        threshold,
+                    });
+                }
+
+                // A successful read clears the error, so a key that breaks again
+                // later is news again instead of being suppressed by an old
+                // notice that nobody remembers seeing.
+                connection.execute(
+                    "UPDATE providers SET notified_below = ?1, notified_error_kind = NULL \
+                     WHERE name = ?2",
+                    params![i64::from(is_below), name],
+                )?;
+            }
+            Err(error) => {
+                if settings.notify_key_errors
+                    && error.credential_is_broken()
+                    && told_about_error.as_deref() != Some(error.kind())
+                {
+                    notices.push(Notice::KeyError {
+                        provider: name.to_string(),
+                        display_name: display_name(name).to_string(),
+                        error_kind: error.kind().to_string(),
+                        message: error.to_string(),
+                    });
+
+                    // Only credential failures are recorded. Writing this on a
+                    // network blip would erase the memory of a real warning and
+                    // let the next poll repeat it.
+                    connection.execute(
+                        "UPDATE providers SET notified_error_kind = ?1 WHERE name = ?2",
+                        params![error.kind(), name],
+                    )?;
+                }
+            }
+        }
+    }
+
+    Ok(notices)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1165,6 +1358,236 @@ mod tests {
             spend_window_days: None,
             key_fingerprint: None,
         }
+    }
+
+    fn ok(remaining: f64) -> Result<Balance, ProviderError> {
+        Ok(balance(
+            Basis::AccountCredits,
+            remaining,
+            Some(remaining),
+            None,
+        ))
+    }
+
+    fn low_settings(threshold: f64) -> Settings {
+        Settings {
+            low_balance_threshold: threshold,
+            ..Settings::default()
+        }
+    }
+
+    #[test]
+    fn a_provider_above_its_threshold_is_never_announced() {
+        let connection = memory_database();
+
+        let notices = take_notifications(
+            &connection,
+            &[("openrouter", ok(50.0))],
+            &low_settings(10.0),
+        )
+        .expect("notices");
+
+        assert!(notices.is_empty());
+    }
+
+    #[test]
+    fn a_crossing_is_announced_once_and_then_not_again() {
+        let connection = memory_database();
+        let settings = low_settings(10.0);
+
+        let first = take_notifications(&connection, &[("openrouter", ok(6.4))], &settings)
+            .expect("notices");
+        assert_eq!(
+            first,
+            vec![Notice::LowBalance {
+                provider: "openrouter".into(),
+                display_name: "OpenRouter".into(),
+                remaining: 6.4,
+                threshold: 10.0,
+            }]
+        );
+
+        // Still low on the next check, but the user has already been told.
+        assert!(
+            take_notifications(&connection, &[("openrouter", ok(6.4))], &settings)
+                .expect("notices")
+                .is_empty()
+        );
+
+        // Topped up, then crossed down again: that is a new event.
+        take_notifications(&connection, &[("openrouter", ok(25.0))], &settings).expect("notices");
+        assert_eq!(
+            take_notifications(&connection, &[("openrouter", ok(6.4))], &settings)
+                .expect("notices")
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn a_provider_that_is_already_low_is_announced_on_the_first_check() {
+        // The fresh-install case. Announcing only on a crossing would say nothing
+        // at all here, which is the one time it is most needed.
+        let connection = memory_database();
+
+        let notices =
+            take_notifications(&connection, &[("openrouter", ok(6.4))], &low_settings(10.0))
+                .expect("notices");
+
+        assert_eq!(notices.len(), 1);
+    }
+
+    #[test]
+    fn a_broken_credential_is_announced_once_per_outage() {
+        let connection = memory_database();
+        let settings = low_settings(2.0);
+
+        let first = take_notifications(
+            &connection,
+            &[("openrouter", Err(ProviderError::Unauthorized))],
+            &settings,
+        )
+        .expect("notices");
+        assert!(matches!(first[..], [Notice::KeyError { .. }]));
+
+        // Still broken, and it has already said so.
+        assert!(
+            take_notifications(
+                &connection,
+                &[("openrouter", Err(ProviderError::Unauthorized))],
+                &settings,
+            )
+            .expect("notices")
+            .is_empty()
+        );
+
+        // A working key clears the memory, so breaking again is news again.
+        take_notifications(&connection, &[("openrouter", ok(50.0))], &settings).expect("notices");
+        assert_eq!(
+            take_notifications(
+                &connection,
+                &[("openrouter", Err(ProviderError::Unauthorized))],
+                &settings,
+            )
+            .expect("notices")
+            .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn a_network_failure_does_not_claim_the_key_is_broken() {
+        // Sending someone to rotate a key that was fine, because their wifi
+        // dropped, is worse than staying quiet.
+        let connection = memory_database();
+
+        let notices = take_notifications(
+            &connection,
+            &[("openrouter", Err(ProviderError::Unreachable("dns".into())))],
+            &low_settings(10.0),
+        )
+        .expect("notices");
+
+        assert!(notices.is_empty());
+    }
+
+    #[test]
+    fn a_failed_check_does_not_clear_a_crossing_already_announced() {
+        let connection = memory_database();
+        let settings = low_settings(10.0);
+
+        take_notifications(&connection, &[("openrouter", ok(6.4))], &settings).expect("notices");
+
+        // Unknown is not the same as fine. Recording the blip as "no longer low"
+        // would re-fire the warning as soon as the balance was readable again.
+        take_notifications(
+            &connection,
+            &[("openrouter", Err(ProviderError::Unreachable("dns".into())))],
+            &settings,
+        )
+        .expect("notices");
+
+        assert!(
+            take_notifications(&connection, &[("openrouter", ok(6.4))], &settings)
+                .expect("notices")
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn a_spend_reading_is_not_mistaken_for_a_low_balance() {
+        let connection = memory_database();
+
+        // 6.4 of spend against a 10 threshold is not 6.4 of money left.
+        let notices = take_notifications(
+            &connection,
+            &[(
+                "openrouter",
+                Ok(balance(Basis::Usage, 6.4, None, Some(6.4))),
+            )],
+            &low_settings(10.0),
+        )
+        .expect("notices");
+
+        assert!(notices.is_empty());
+    }
+
+    #[test]
+    fn switching_the_notifications_off_silences_both_kinds() {
+        let connection = memory_database();
+        let settings = Settings {
+            low_balance_threshold: 10.0,
+            notify_low_balance: false,
+            notify_key_errors: false,
+            ..Settings::default()
+        };
+
+        let notices = take_notifications(
+            &connection,
+            &[
+                ("openrouter", ok(6.4)),
+                ("cheaperinference", Err(ProviderError::Unauthorized)),
+            ],
+            &settings,
+        )
+        .expect("notices");
+
+        assert!(notices.is_empty());
+    }
+
+    #[test]
+    fn each_provider_is_measured_against_its_own_threshold() {
+        let connection = memory_database();
+        set_provider_threshold(&connection, "cheaperinference", Some(50.0)).expect("threshold");
+
+        let notices = take_notifications(
+            &connection,
+            &[("openrouter", ok(6.4)), ("cheaperinference", ok(11.59))],
+            &low_settings(10.0),
+        )
+        .expect("notices");
+
+        // CheaperInference is under the 50 it was given, and would have looked
+        // perfectly healthy measured against the app default.
+        assert_eq!(notices.len(), 2);
+        assert!(matches!(&notices[0], Notice::LowBalance { threshold, .. } if *threshold == 10.0));
+        assert!(matches!(&notices[1], Notice::LowBalance { threshold, .. } if *threshold == 50.0));
+    }
+
+    #[test]
+    fn notification_choices_survive_a_restart() {
+        let connection = memory_database();
+        let settings = Settings {
+            notify_low_balance: false,
+            notify_key_errors: false,
+            ..Settings::default()
+        };
+
+        save_settings(&connection, &settings).expect("saved");
+        let reloaded = load_settings(&connection).expect("loaded");
+
+        assert!(!reloaded.notify_low_balance);
+        assert!(!reloaded.notify_key_errors);
     }
 
     #[test]
@@ -1504,6 +1927,7 @@ mod tests {
             &Settings {
                 poll_interval_minutes: 15,
                 low_balance_threshold: 7.5,
+                ..Settings::default()
             },
         )
         .expect("saved");
@@ -1520,10 +1944,17 @@ mod tests {
             DEFAULT_POLL_INTERVAL_MINUTES
         );
 
-        let count: i64 = connection
-            .query_row("SELECT count(*) FROM settings", [], |row| row.get(0))
-            .expect("count");
-        assert_eq!(count, 2, "one row per setting, not one per save");
+        // One row per setting, not one per save. Measured against itself rather
+        // than a fixed number, so adding a setting does not break this test.
+        let count = |connection: &Connection| -> i64 {
+            connection
+                .query_row("SELECT count(*) FROM settings", [], |row| row.get(0))
+                .expect("count")
+        };
+        let before = count(&connection);
+        save_settings(&connection, &Settings::default()).expect("saved a third time");
+        assert_eq!(before, count(&connection), "saving again must not add rows");
+        assert!(before > 0, "every setting should have written a row");
     }
 
     #[test]
@@ -1569,6 +2000,7 @@ mod tests {
         let settings = Settings {
             poll_interval_minutes: 30,
             low_balance_threshold: 2.0,
+            ..Settings::default()
         };
 
         assert_eq!(effective_threshold(&settings, None), 2.0);

@@ -11,6 +11,36 @@ function intervalLabel(minutes: number): string {
   return minutes >= 60 ? `${minutes / 60}h` : `${minutes}m`
 }
 
+/** The one switch shape on this screen, so three rows cannot drift apart. */
+function Switch({
+  on,
+  onToggle,
+  label,
+}: {
+  on: boolean
+  onToggle: () => void
+  label: string
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      role="switch"
+      aria-checked={on}
+      aria-label={label}
+      className={`relative mt-0.5 h-[18px] w-[32px] shrink-0 rounded-full transition ${
+        on ? 'bg-amber' : 'bg-line-strong'
+      }`}
+    >
+      <span
+        className={`absolute top-[2px] h-[14px] w-[14px] rounded-full transition-all ${
+          on ? 'right-[2px] bg-[#1A1408]' : 'left-[2px] bg-ink-muted'
+        }`}
+      />
+    </button>
+  )
+}
+
 /**
  * Settings, as a view of the same window rather than a second window.
  *
@@ -22,6 +52,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
   const [draftInterval, setDraftInterval] = useState<number | null>(null)
   const [draftThreshold, setDraftThreshold] = useState('')
   const [autostart, setAutostart] = useState(false)
+  const [notify, setNotify] = useState({ low: true, errors: true })
   const [problem, setProblem] = useState<string | null>(null)
   const [note, setNote] = useState<string | null>(null)
 
@@ -32,6 +63,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
       setDraftInterval(view.pollIntervalMinutes)
       setDraftThreshold(view.lowBalanceThreshold.toFixed(2))
       setAutostart(view.autostartEnabled)
+      setNotify({ low: view.notifyLowBalance, errors: view.notifyKeyErrors })
       setProblem(null)
     } catch (error) {
       setProblem(String(error))
@@ -44,12 +76,19 @@ export function Settings({ onClose }: { onClose: () => void }) {
 
   /** Writes the whole form, because the command saves it as one. */
   const persist = useCallback(
-    async (next: { interval: number; threshold: number; autostart: boolean }) => {
+    async (next: {
+      interval: number
+      threshold: number
+      autostart: boolean
+      notify: { low: boolean; errors: boolean }
+    }) => {
       try {
         await api.saveSettings(
           {
             pollIntervalMinutes: next.interval,
             lowBalanceThreshold: next.threshold,
+            notifyLowBalance: next.notify.low,
+            notifyKeyErrors: next.notify.errors,
           },
           next.autostart,
         )
@@ -70,6 +109,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
         interval: minutes,
         threshold: settings.lowBalanceThreshold,
         autostart,
+        notify,
       })
     }
   }
@@ -88,6 +128,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
       interval: settings.pollIntervalMinutes,
       threshold: parsed,
       autostart,
+      notify,
     })
   }
 
@@ -100,6 +141,20 @@ export function Settings({ onClose }: { onClose: () => void }) {
       interval: settings.pollIntervalMinutes,
       threshold: settings.lowBalanceThreshold,
       autostart: next,
+      notify,
+    })
+  }
+
+  function toggleNotify(which: 'low' | 'errors') {
+    if (!settings) return
+
+    const next = { ...notify, [which]: !notify[which] }
+    setNotify(next)
+    void persist({
+      interval: settings.pollIntervalMinutes,
+      threshold: settings.lowBalanceThreshold,
+      autostart,
+      notify: next,
     })
   }
 
@@ -212,6 +267,34 @@ export function Settings({ onClose }: { onClose: () => void }) {
               />
             </div>
           </div>
+
+          <div className="flex items-start justify-between gap-8 py-3">
+            <div>
+              <div className="text-[12px]">Notify when a balance drops below its threshold</div>
+              <div className="num mt-1 text-[11px] text-ink-muted">
+                Once, at the moment it crosses. The tray stays amber until you top up.
+              </div>
+            </div>
+            <Switch
+              on={notify.low}
+              onToggle={() => toggleNotify('low')}
+              label="Notify when a balance drops below its threshold"
+            />
+          </div>
+
+          <div className="flex items-start justify-between gap-8 py-3">
+            <div>
+              <div className="text-[12px]">Notify when a key stops working</div>
+              <div className="num mt-1 text-[11px] text-ink-muted">
+                A rejected key means this provider has quietly stopped being tracked.
+              </div>
+            </div>
+            <Switch
+              on={notify.errors}
+              onToggle={() => toggleNotify('errors')}
+              label="Notify when a key stops working"
+            />
+          </div>
         </div>
       </div>
 
@@ -270,22 +353,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
                 Starts in the tray, without opening the dashboard.
               </div>
             </div>
-            <button
-              type="button"
-              onClick={toggleAutostart}
-              role="switch"
-              aria-checked={autostart}
-              aria-label="Launch at login"
-              className={`relative mt-0.5 h-[18px] w-[32px] shrink-0 rounded-full transition ${
-                autostart ? 'bg-amber' : 'bg-line-strong'
-              }`}
-            >
-              <span
-                className={`absolute top-[2px] h-[14px] w-[14px] rounded-full transition-all ${
-                  autostart ? 'right-[2px] bg-[#1A1408]' : 'left-[2px] bg-ink-muted'
-                }`}
-              />
-            </button>
+            <Switch on={autostart} onToggle={toggleAutostart} label="Launch at login" />
           </div>
         </div>
       </div>

@@ -51,7 +51,7 @@ Each step is meant to run before the next one starts.
 | 2 | SQLite snapshots, keychain key storage | done |
 | 3 | React dashboard over Tauri commands | done |
 | 4 | Background poller, tray icon, popover | done |
-| 5 | Trend chart, per-provider threshold, OS notification | chart and thresholds done, notifications pending |
+| 5 | Trend chart, per-provider threshold, OS notification | done |
 | 6 | Settings screen, more providers, packaging | settings done, more providers and packaging not started |
 
 ## Layout
@@ -101,7 +101,7 @@ As built, which is not what the original draft said:
 
 ```sql
 providers (
-  id, name, low_balance_threshold
+  id, name, low_balance_threshold, notified_below, notified_error_kind
 )
 
 balance_snapshots (
@@ -117,10 +117,20 @@ settings (
 means "use the app default". Zero would mean "never warn me", which is a
 different thing, so the column stays null rather than defaulting to a number.
 
+`providers.notified_below` and `notified_error_kind` record what the user was
+last told, so a notification is an edge rather than a state. `notified_below`
+defaults to `0`, and that is deliberate: a provider that is already under its
+threshold the first time the app looks at it is news. If the initial state were
+"unknown", the crossing would never happen and a fresh install would say nothing
+about a balance that was already low. `notified_error_kind` holds the
+`ProviderError::kind()` that was reported, and a successful read clears it, so a
+key that breaks again later is news again rather than silenced by a notice nobody
+remembers.
+
 `settings` is a free-form key/value table, currently holding
-`poll_interval_minutes` and `low_balance_threshold`. Unknown keys are ignored on
-read rather than being an error, so an older build opening a newer database
-loses nothing.
+`poll_interval_minutes`, `low_balance_threshold`, `notify_low_balance` and
+`notify_key_errors`. Unknown keys are ignored on read rather than being an error,
+so an older build opening a newer database loses nothing.
 
 The draft imagined a single `available_usd` column. That turned out to be
 impossible to fill honestly: OpenRouter has no single number that means
@@ -306,6 +316,46 @@ required: account:read" tells someone what to go and fix; "HTTP 403" does not.
 Provider error bodies are parsed for a message, and HTML error pages are
 discarded rather than repeated back.
 
+**Notifications are edges, not states.** A balance crossing its threshold
+notifies once. It does not repeat while the balance stays low, because the tray
+already stays amber the whole time and the dashboard keeps its callout, so the
+state is visible without being repeated. The edge is consumed in the database, so
+closing and reopening the app does not replay a warning for a balance that has
+been low for days.
+
+**Only a broken credential notifies, not a transient failure.**
+`ProviderError::credential_is_broken()` covers a rejected key and a key without
+permission. Rate limiting, an unreachable host, an unusable response and a
+missing credential do not notify. Sending someone to rotate a key that was fine,
+because their wifi dropped, is worse than saying nothing, and a missing
+credential is what a fresh install looks like while the dashboard is already
+asking for one.
+
+**A failed check leaves the notification state alone.** The balance is unknown,
+and unknown is not the same as fine. Recording a blip as "no longer low" would
+re-fire the warning the moment the balance became readable again.
+
+**The threshold that decides a notification is the one passed in, not the one
+stored.** `take_notifications` resolves per-provider overrides against the
+`Settings` it is given. An earlier version called `resolved_thresholds()`, which
+re-reads settings from the database, so a threshold changed but not yet saved was
+ignored. A test with a database default of 2.0 and a passed-in 10.0 caught it.
+
+**Two providers crossing in one check become one toast.** Two toasts stacked in
+the corner read as noise, and the second is usually gone before it can be read.
+The combined body lists each provider with its balance.
+
+**Autostart is only touched when it differs from what is wanted.** Disabling
+something that was never enabled fails on Windows with "The system cannot find
+the file specified". Because the settings screen saves the whole form at once and
+this is the one part of it that can fail, that error surfaced as a bogus banner on
+every unrelated settings change for anyone who leaves autostart off.
+
+**The notification copy lives in the app, not the core.** `Notice` carries the
+provider, its display name, the balance and the threshold; the wording is built
+where the toast is shown. Tests then assert on what happened rather than on a
+sentence, which does not have to be rewritten when the wording changes.
+
 ## Provider notes
 
 Checked against the live APIs rather than the documentation, because the two
@@ -353,11 +403,12 @@ can actually spend after reservations.
   registers the **debug binary** as the login item, so the entry stops working
   once that build is cleaned. It writes the right path when the app is installed;
   treat it as untrustworthy until packaging exists.
-- No OS notification on a low balance. The tray turns amber and the dashboard
-  shows a callout, but nothing reaches you when the window is closed. This is the
-  only piece of v2 still unbuilt.
 - "Remove a provider" removes the keychain entry but not an environment
   variable, so a provider can stay configured after being removed.
+- In a `tauri dev` run a toast is attributed to whatever launched the app and
+  shows "Windows PowerShell" rather than "Meterix", because an unpackaged process
+  has no registered AppUserModelID. The copy and the icon are correct; the
+  attribution is worth re-checking once packaging exists.
 - No tray icon on Linux without an AppIndicator host, which is a desktop
   environment question rather than a code one.
 - The webview sometimes restores the dashboard's scroll position on launch, so

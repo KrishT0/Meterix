@@ -31,7 +31,7 @@
   .sechead { display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; }
   h2 { font-family:Inter,system-ui,sans-serif; font-size:14px; font-weight:600; margin:0; letter-spacing:-0.01em; }
   .why { color:var(--ink-muted); font-size:11px; line-height:1.75; margin:10px 0 0; max-width:80ch; }
-  .why b { color:var(--ink-dim); font-weight:400; }
+  .why b, .sub b, .absent b { color:var(--ink-dim); font-weight:400; }
 
   /* ── the toast, as close as a mock can get ── */
   .toasts { display:grid; gap:16px; margin-top:20px; }
@@ -96,12 +96,13 @@
 <body>
 <div class="shell">
 
-  <p class="label">Mockup</p>
+  <p class="label">Mockup — since built</p>
   <h1>Low balance notifications</h1>
   <p class="sub">
     The last piece of v2. The app already turns the tray amber and shows a callout on the dashboard,
     but if you are not looking at either, nothing reaches you, which is the whole point of polling in
-    the background. Nothing here is applied to the app yet.
+    the background. This has since been built, so what follows is the design as it shipped, with the
+    options that were rejected left in place because the reasoning is the useful part.
   </p>
 
   <!-- ══ 1. what it says ══ -->
@@ -172,12 +173,16 @@
       This is the part that decides whether the feature is useful or infuriating. The teal mark is the
       moment a balance drops below its threshold; dots are notifications.
     </p>
+    <p class="why">
+      <b>Chosen: A.</b> The other two are kept because the reasoning is the part worth keeping, and
+      because "notify every check" is the obvious thing to reach for first.
+    </p>
 
     <div class="timing">
       <div class="trow">
         <div class="trowhead">
           <span class="n rec">A</span><span class="tname">The moment it crosses</span>
-          <span class="tcount">1 notification</span>
+          <span class="tcount">1 notification · chosen</span>
         </div>
         <div class="track">
           <div class="cross" style="left:31%"></div>
@@ -229,45 +234,39 @@
       <span class="label-sm">one new zone</span>
     </div>
     <p class="why">
-      Two rows, sitting between Alerts and Startup on the settings screen. They use the same row
-      shape as everything already there, so nothing new has to be invented.
+      Two rows, in the Alerts zone next to the default threshold. They use the row shape already
+      there, so nothing new had to be invented.
     </p>
 
     <div class="rows" style="margin-top:22px">
       <div class="row">
         <div>
-          <div class="rtitle">Notify me when a balance drops below its threshold</div>
-          <div class="rsub">Uses each provider's own threshold, so a provider you have set to $10 warns at $10.</div>
+          <div class="rtitle">Notify when a balance drops below its threshold</div>
+          <div class="rsub">Once, at the moment it crosses. The tray stays amber until you top up.</div>
         </div>
         <button class="switch" aria-pressed="true"><i></i></button>
       </div>
-      <div class="row">
-        <div>
-          <div class="rtitle">While it stays low</div>
-          <div class="rsub">What happens after the first notification, if you have not topped up. Silent by default, because the tray already stays amber until you do.</div>
-        </div>
-        <div class="seg">
-          <button aria-pressed="true">Silent</button>
-          <button aria-pressed="false">Daily</button>
-          <button aria-pressed="false">Every check</button>
-        </div>
-      </div>
       <div class="row" style="border-bottom:none">
         <div>
-          <div class="rtitle">Tell me when a key stops working</div>
-          <div class="rsub">Separate from the balance warning, because it means the app has stopped tracking that provider entirely.</div>
+          <div class="rtitle">Notify when a key stops working</div>
+          <div class="rsub">A rejected key means this provider has quietly stopped being tracked.</div>
         </div>
         <button class="switch" aria-pressed="true"><i></i></button>
       </div>
     </div>
 
     <div class="absent">
-      <span class="label-sm">Deliberately not included</span>
+      <span class="label-sm">Considered, not built</span>
       <p>
-        A per-provider mute. It looks like it should exist, but the per-provider threshold already
-        does the job: if you do not want to hear about a provider until it is nearly empty, set its
-        threshold low. Adding a second control for the same intent gives you two places to look when
-        a notification does not arrive.
+        <b>A repeat control.</b> "While it stays low" with Silent, Daily and Every check was mocked
+        up and then left out, because Silent is what was chosen. Building two modes nobody selected
+        would be speculation, and it is a one-line addition if the daily reminder is ever wanted.
+      </p>
+      <p>
+        <b>A per-provider mute.</b> It looks like it should exist, but the per-provider threshold
+        already does the job: to stop hearing about a provider until it is nearly empty, set its
+        threshold low. A second control for the same intent gives you two places to look when a
+        notification does not arrive.
       </p>
     </div>
   </section>
@@ -275,8 +274,11 @@
   <div class="foot">
     <b>What the app has to remember.</b> "The moment it crosses" only works if the app knows it has
     already spoken. That state has to survive a restart, or closing and reopening the app re-fires a
-    notification for a balance that has been low for days. One row per provider in the database, the
-    same place the threshold lives.<br><br>
+    notification for a balance that has been low for days. It now lives on the provider row, next to
+    the threshold.<br><br>
+    <b>A provider that is already low when first seen still warns.</b> Otherwise there is a hole:
+    "fire on crossing" never fires for a balance that is already under the threshold on the first
+    check, so a fresh install against a nearly empty account would say nothing at all.<br><br>
     <b>Forecasts are not offered.</b> The dashboard shows a blended burn rate, but it is summed across
     providers, so "about 3 days left" would be a per-provider claim built from a number that is not
     per provider. Doing it properly needs a per-provider burn rate first. Say the word if you want that

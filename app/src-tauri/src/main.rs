@@ -18,13 +18,14 @@ use tauri::image::Image;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager, WindowEvent};
+use tauri_plugin_notification::NotificationExt;
 
 use meterix_core::{
-    Basis, DEFAULT_POLL_INTERVAL_MINUTES, PROVIDERS, Settings, Snapshot, credential_hint,
+    Basis, DEFAULT_POLL_INTERVAL_MINUTES, Notice, PROVIDERS, Settings, Snapshot, credential_hint,
     display_name, effective_threshold, fetch_balances, forget_key, history, load_settings,
     open_database, provider_fingerprint, provider_thresholds, save_settings as persist_settings,
-    save_snapshot,
-    save_verified_key, set_provider_threshold as store_threshold,
+    save_snapshot, save_verified_key, set_provider_threshold as store_threshold,
+    take_notifications,
 };
 
 /// One provider, as the dashboard needs it: whether a key exists, and the most
@@ -129,10 +130,10 @@ async fn refresh_and_store(
     let thresholds = resolved_threshold_map(&connection)?;
     let mut rows = Vec::with_capacity(outcomes.len());
 
-    for (provider, result) in outcomes {
+    for (provider, result) in &outcomes {
         match result {
             Ok(balance) => {
-                save_snapshot(&connection, &balance).map_err(|error| error.to_string())?;
+                save_snapshot(&connection, balance).map_err(|error| error.to_string())?;
 
                 rows.push(RefreshOutcome {
                     provider: provider.to_string(),
@@ -164,12 +165,107 @@ async fn refresh_and_store(
 
     update_tray(app, &rows, &thresholds);
 
+    // Deliberately after the tray and the snapshots, so a notification that
+    // cannot be shown never costs a recorded reading. The edge is consumed even
+    // if showing it fails, which is why this does not depend on the result.
+    match load_settings(&connection) {
+        Ok(settings) => match take_notifications(&connection, &outcomes, &settings) {
+            Ok(notices) => notify(app, &notices),
+            Err(error) => eprintln!("could not work out notifications: {error}"),
+        },
+        Err(error) => eprintln!("could not read settings: {error}"),
+    }
+
     // Tell every open window, so the popover and the dashboard cannot disagree.
     // They re-read the database rather than being handed this payload, which
     // keeps one path for reading state.
     let _ = app.emit(UPDATED_EVENT, ());
 
     Ok(rows)
+}
+
+/// Turn notices into the toasts the user actually sees.
+///
+/// Two providers crossing in the same check become one toast instead of two. Two
+/// toasts stacked in the corner read as noise, and the second is usually pushed
+/// off screen before it can be read anyway. Foreground and background both read
+/// the same wording, because a notification that arrives while the dashboard
+/// happens to be open is not a different event.
+fn notify(app: &AppHandle, notices: &[Notice]) {
+    let show = |title: String, body: String| {
+        if let Err(error) = app.notification().builder().title(title).body(body).show() {
+            eprintln!("could not show a notification: {error}");
+        }
+    };
+
+    let low: Vec<(&str, f64, f64)> = notices
+        .iter()
+        .filter_map(|notice| match notice {
+            Notice::LowBalance {
+                display_name,
+                remaining,
+                threshold,
+                ..
+            } => Some((display_name.as_str(), *remaining, *threshold)),
+            Notice::KeyError { .. } => None,
+        })
+        .collect();
+
+    match low.as_slice() {
+        [] => {}
+        [(name, remaining, threshold)] => show(
+            format!("{name} is running low"),
+            format!("${remaining:.2} left, below your ${threshold:.2} threshold."),
+        ),
+        several => {
+            // "Both" is only true while there are two providers to have.
+            let title = if several.len() == 2 && PROVIDERS.len() == 2 {
+                "Both providers are running low".to_string()
+            } else {
+                format!("{} providers are running low", several.len())
+            };
+
+            let body = several
+                .iter()
+                .map(|(name, remaining, _)| format!("{name} ${remaining:.2}"))
+                .collect::<Vec<_>>()
+                .join(" · ");
+
+            show(title, body);
+        }
+    }
+
+    // One each, rather than combined: these are separate keys to go and replace.
+    for notice in notices {
+        if let Notice::KeyError {
+            display_name,
+            error_kind,
+            message,
+            ..
+        } = notice
+        {
+            let body = if error_kind == "unauthorized" {
+                "The stored key was rejected. Add a new one in Settings.".to_string()
+            } else {
+                // Anything else that leaves the credential unusable explains
+                // itself better than one fixed sentence could.
+                sentence(message)
+            };
+
+            show(format!("{display_name} refused the key"), body);
+        }
+    }
+}
+
+/// `ProviderError`'s messages follow an `error: ` prefix, so they start lower
+/// case. A notification body is a sentence in its own right.
+fn sentence(message: &str) -> String {
+    let mut characters = message.chars();
+
+    match characters.next() {
+        Some(first) => first.to_uppercase().collect::<String>() + characters.as_str(),
+        None => String::new(),
+    }
 }
 
 #[tauri::command]
@@ -484,6 +580,8 @@ fn build_tray(app: &AppHandle, quitting: Arc<AtomicBool>) -> tauri::Result<()> {
 struct SettingsView {
     poll_interval_minutes: u32,
     low_balance_threshold: f64,
+    notify_low_balance: bool,
+    notify_key_errors: bool,
     database_path: String,
     autostart_enabled: bool,
     providers: Vec<ProviderSetting>,
@@ -526,6 +624,8 @@ fn settings(app: AppHandle) -> Result<SettingsView, String> {
     Ok(SettingsView {
         poll_interval_minutes: current.poll_interval_minutes,
         low_balance_threshold: current.low_balance_threshold,
+        notify_low_balance: current.notify_low_balance,
+        notify_key_errors: current.notify_key_errors,
         database_path: meterix_core::database_path()
             .map(|path| path.display().to_string())
             .unwrap_or_else(|error| format!("unavailable: {error}")),
@@ -535,20 +635,37 @@ fn settings(app: AppHandle) -> Result<SettingsView, String> {
 }
 
 /// Saved as one form, because that is how the screen presents it.
-#[tauri::command]
-fn save_settings(app: AppHandle, settings: Settings, autostart: bool) -> Result<(), String> {
+/// Apply the wanted autostart state, touching the OS only when it differs.
+///
+/// Disabling something that was never enabled fails on Windows with "The system
+/// cannot find the file specified". Without the comparison, anyone who leaves
+/// autostart off would get that error on every unrelated settings change, because
+/// the whole form is saved together and this is the one part of it that can fail.
+fn apply_autostart(app: &AppHandle, desired: bool) -> Result<(), String> {
     use tauri_plugin_autostart::ManagerExt;
 
-    let connection = open_database().map_err(|error| error.to_string())?;
-    persist_settings(&connection, &settings).map_err(|error| error.to_string())?;
-
     let manager = app.autolaunch();
-    let changed = if autostart {
+    let enabled = manager.is_enabled().unwrap_or(false);
+
+    if enabled == desired {
+        return Ok(());
+    }
+
+    let changed = if desired {
         manager.enable()
     } else {
         manager.disable()
     };
-    changed.map_err(|error| error.to_string())?;
+
+    changed.map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn save_settings(app: AppHandle, settings: Settings, autostart: bool) -> Result<(), String> {
+    let connection = open_database().map_err(|error| error.to_string())?;
+    persist_settings(&connection, &settings).map_err(|error| error.to_string())?;
+
+    apply_autostart(&app, autostart)?;
 
     // Cut the current sleep short, so a new interval is not waiting behind the
     // old one.
@@ -569,6 +686,7 @@ fn main() {
     let quit_flag = Arc::clone(&quitting);
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             None,
