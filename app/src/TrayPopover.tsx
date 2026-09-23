@@ -48,7 +48,16 @@ export function TrayPopover() {
     // Anything that refreshes — the poller, the tray menu, the dashboard —
     // announces it, so this cannot go stale behind the dashboard's back.
     const stop = listen('balances-updated', () => void load())
+
+    // The popover is hidden whenever it loses focus, so it is only ever visible
+    // just after being focused. Re-reading here means the numbers are right when
+    // they appear, rather than whatever the last poll stored, which could be a
+    // whole interval old with nothing on screen admitting it.
+    const onFocus = () => void load()
+    window.addEventListener('focus', onFocus)
+
     return () => {
+      window.removeEventListener('focus', onFocus)
       void stop.then((unlisten) => unlisten())
     }
   }, [load])

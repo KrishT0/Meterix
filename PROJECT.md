@@ -252,6 +252,12 @@ resolved per provider rather than assuming one shared timestamp.
 date, so five date labels read identically and the axis tells you nothing. Under
 two days the labels are times instead.
 
+**The popover re-reads whenever it gains focus.** It is hidden the moment it
+loses focus, so it is only ever visible just after being focused, which makes
+focus exactly the right moment to read. It used to read on mount only, so a
+popover opened between polls showed numbers up to a whole interval old with
+nothing on screen admitting it.
+
 **Snapshots record which credential produced them.** The database stores the
 first 8 bytes of the key's SHA-256, never the key. Swapping a key for a different
 account used to splice two accounts into one trend line, and the chart drew that
@@ -352,11 +358,11 @@ can actually spend after reservations.
   only piece of v2 still unbuilt.
 - "Remove a provider" removes the keychain entry but not an environment
   variable, so a provider can stay configured after being removed.
-- The popover reads the database when it mounts and on every refresh event, not
-  when it is opened, so it can be up to one poll interval old if nothing else has
-  refreshed. It has a Refresh button for that.
 - No tray icon on Linux without an AppIndicator host, which is a desktop
   environment question rather than a code one.
+- The webview sometimes restores the dashboard's scroll position on launch, so
+  the window can open part-way down the page with the total balance off screen.
+  Seen once, so worth confirming before chasing it.
 - Light mode is not built. The palette in `app/src/index.css` is dark only.
 - The window keeps its native title bar rather than the reference design's
   custom one, so a Windows title bar sits above the app header.
