@@ -453,6 +453,30 @@ would be both slower and a lie in the chart, since it would store a reading that
 no poll asked for and skew the burn rate. The four tray-colour cases are pinned by
 tests in the app crate.
 
+**The CSP is no longer off.** It had been `null`, which is the one setting the
+webview would otherwise apply nothing to. The frontend loads nothing external —
+fonts are self-hosted through `@fontsource-variable` and there is not a single
+`https://` reference — so it can be tight. Two directives are not optional:
+`connect-src` must list `ipc: http://ipc.localhost` because Tauri does not inject
+the IPC origin itself, and `style-src` needs `'unsafe-inline'` because
+`BalanceChart` computes fourteen positions and colours at runtime, which Tailwind
+cannot express.
+
+`'unsafe-inline'` is safe from being silently disabled here, which is the usual
+trap: the browser ignores it whenever a nonce or hash shares the directive. It
+cannot happen in this app. `tauri-codegen` only hashes `script:not(:empty)`, so an
+external `<script type="module" src>` produces nothing, there is no style-hash
+injector at all, and the nonce tokens are only ever read — never written into the
+HTML, which has no inline script or style to begin with.
+
+`devCsp` is set separately and more loosely, because Vite injects the React
+Refresh preamble as an inline script and serves styles as `<style>` tags.
+
+Verified by running the release build with port 1420 confirmed free and checking
+that it still wrote readings: 2 snapshots means the bundle executed, React
+mounted and IPC reached Rust. That covers `script-src` and `connect-src`. It does
+not cover the inline styles, which no automated check here can see.
+
 ## Provider notes
 
 Checked against the live APIs rather than the documentation, because the two
@@ -536,4 +560,10 @@ can actually spend after reservations.
 - The tray popover's webview is built at startup and kept alive whether or not it
   is ever opened, so every session carries a second renderer. Lazy creation would
   fix it. Cost not measured.
-- The bundled CSP is off (`csp: null`). Worth tightening before packaging.
+- **A plain `cargo build --release` yields a dev-mode binary.** It loads `devUrl`
+  and shows an Edge error page, with no JavaScript running at all. `tauri` decides
+  this in `is_dev()`, which is `!cfg!(feature = "custom-protocol")`, and it is the
+  CLI that enables `tauri/custom-protocol`. Always use `npm run tauri build`; a
+  bare cargo build looks like it worked and produces something that cannot run.
+  The crate has no `[features]` section, which is why the CLI passes the
+  dependency path rather than a feature of our own.
