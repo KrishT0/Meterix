@@ -32,6 +32,19 @@
   --color-copper-tint: #33241a;
 }
 
+/* Tailwind v4 dropped the browser's default `cursor: pointer` on buttons, so
+   every control in the app was showing a text arrow. One rule here instead of a
+   `cursor-pointer` utility on each of them, and it cannot be forgotten on the
+   next button someone adds. */
+@layer base {
+  button:not(:disabled),
+  select:not(:disabled),
+  summary,
+  [role='button']:not([aria-disabled='true']) {
+    cursor: pointer;
+  }
+}
+
 /* The reference's signature: small uppercase tracked monospace for every
    label, and monospace with tabular figures for every number.
    Colour is left unset so a text-* utility on the element can win. */

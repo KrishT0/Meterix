@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import type { ButtonHTMLAttributes, ReactNode } from 'react'
 
 import type { ProviderOverview, RefreshOutcome } from '../lib/api'
@@ -152,3 +153,68 @@ export const RefreshIcon = icon(
   </>,
   12,
 )
+
+/**
+ * A small yes/no modal, in place of `window.confirm`.
+ *
+ * The browser dialog cannot be styled, blocks the whole webview, and looks like
+ * a page error rather than something the app is asking. This one is a proper
+ * choice: Escape or clicking away cancels, and focus starts on Cancel so the
+ * destructive option is never the one under the return key.
+ */
+export function ConfirmDialog({
+  title,
+  detail,
+  confirmLabel = 'Yes',
+  cancelLabel = 'No',
+  busy = false,
+  onConfirm,
+  onCancel,
+}: {
+  title: string
+  detail?: string
+  confirmLabel?: string
+  cancelLabel?: string
+  busy?: boolean
+  onConfirm: () => void
+  onCancel: () => void
+}) {
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onCancel()
+    }
+
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onCancel])
+
+  return (
+    <div
+      className="fixed inset-0 z-50 grid place-items-center bg-backdrop/70 p-6"
+      role="presentation"
+      onClick={onCancel}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        className="w-full max-w-[380px] rounded-[10px] border border-line-strong bg-panel p-4 shadow-2xl"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <p className="text-[13px] font-medium">{title}</p>
+        {detail ? (
+          <p className="num mt-1.5 text-[11px] leading-relaxed text-ink-muted">{detail}</p>
+        ) : null}
+
+        <div className="mt-4 flex justify-end gap-2">
+          <Button variant="secondary" autoFocus onClick={onCancel}>
+            {cancelLabel}
+          </Button>
+          <Button variant="primary" disabled={busy} onClick={onConfirm}>
+            {confirmLabel}
+          </Button>
+        </div>
+      </div>
+    </div>
+  )
+}

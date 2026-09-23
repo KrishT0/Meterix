@@ -41,29 +41,76 @@ function Switch({
   )
 }
 
+/** Everything the form can change. Thresholds stay text so a field can be
+ *  mid-edit without a half-typed number being treated as a value. */
+type Draft = {
+  interval: number
+  threshold: string
+  notifyLow: boolean
+  notifyErrors: boolean
+  autostart: boolean
+  /** Provider name to its own threshold text. Empty means the app default. */
+  providers: Record<string, string>
+}
+
+function draftOf(view: SettingsView): Draft {
+  return {
+    interval: view.pollIntervalMinutes,
+    threshold: view.lowBalanceThreshold.toFixed(2),
+    notifyLow: view.notifyLowBalance,
+    notifyErrors: view.notifyKeyErrors,
+    autostart: view.autostartEnabled,
+    providers: Object.fromEntries(
+      view.providers.map((provider) => [
+        provider.name,
+        provider.lowBalanceThreshold?.toFixed(2) ?? '',
+      ]),
+    ),
+  }
+}
+
+/** Compared in cents, because that is all the field shows. Comparing the raw
+ *  number would make a stored 5.555 read back as "5.56" and leave the form
+ *  open with unsaved changes that the user never made. */
+function sameNumber(text: string, value: number): boolean {
+  const parsed = Number.parseFloat(text)
+  return Number.isFinite(parsed) && Math.round(parsed * 100) === Math.round(value * 100)
+}
+
+function differs(view: SettingsView, draft: Draft): boolean {
+  if (draft.interval !== view.pollIntervalMinutes) return true
+  if (draft.notifyLow !== view.notifyLowBalance) return true
+  if (draft.notifyErrors !== view.notifyKeyErrors) return true
+  if (draft.autostart !== view.autostartEnabled) return true
+  if (!sameNumber(draft.threshold, view.lowBalanceThreshold)) return true
+
+  return view.providers.some((provider) => {
+    const text = draft.providers[provider.name] ?? ''
+    return provider.lowBalanceThreshold === null
+      ? text.trim() !== ''
+      : !sameNumber(text, provider.lowBalanceThreshold)
+  })
+}
+
 /**
  * Settings, as a view of the same window rather than a second window.
  *
- * Everything here is saved on change: there is no Save button, because there is
- * nothing to batch and a form that saves itself is one fewer thing to get wrong.
+ * Edits are held in a draft and written by Save Changes, which stays disabled
+ * until something actually differs. The per-provider thresholds belong to a
+ * separate command, so they are written one at a time once the rest of the form
+ * has been accepted, and everything is validated before anything is written.
  */
 export function Settings({ onClose }: { onClose: () => void }) {
   const [settings, setSettings] = useState<SettingsView | null>(null)
-  const [draftInterval, setDraftInterval] = useState<number | null>(null)
-  const [draftThreshold, setDraftThreshold] = useState('')
-  const [autostart, setAutostart] = useState(false)
-  const [notify, setNotify] = useState({ low: true, errors: true })
+  const [draft, setDraft] = useState<Draft | null>(null)
   const [problem, setProblem] = useState<string | null>(null)
-  const [note, setNote] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
 
   const load = useCallback(async () => {
     try {
       const view = await api.settings()
       setSettings(view)
-      setDraftInterval(view.pollIntervalMinutes)
-      setDraftThreshold(view.lowBalanceThreshold.toFixed(2))
-      setAutostart(view.autostartEnabled)
-      setNotify({ low: view.notifyLowBalance, errors: view.notifyKeyErrors })
+      setDraft(draftOf(view))
       setProblem(null)
     } catch (error) {
       setProblem(String(error))
@@ -74,115 +121,73 @@ export function Settings({ onClose }: { onClose: () => void }) {
     void load()
   }, [load])
 
-  /** Writes the whole form, because the command saves it as one. */
-  const persist = useCallback(
-    async (next: {
-      interval: number
-      threshold: number
-      autostart: boolean
-      notify: { low: boolean; errors: boolean }
-    }) => {
-      try {
-        await api.saveSettings(
-          {
-            pollIntervalMinutes: next.interval,
-            lowBalanceThreshold: next.threshold,
-            notifyLowBalance: next.notify.low,
-            notifyKeyErrors: next.notify.errors,
-          },
-          next.autostart,
-        )
-        setNote('saved')
-        await load()
-      } catch (error) {
-        setProblem(String(error))
-        setNote(null)
-      }
-    },
-    [load],
-  )
-
-  function chooseInterval(minutes: number) {
-    setDraftInterval(minutes)
-    if (settings) {
-      void persist({
-        interval: minutes,
-        threshold: settings.lowBalanceThreshold,
-        autostart,
-        notify,
-      })
-    }
+  function edit(patch: Partial<Draft>) {
+    setDraft((current) => (current ? { ...current, ...patch } : current))
   }
 
-  function commitThreshold() {
-    if (!settings) return
+  function editProvider(name: string, text: string) {
+    setDraft((current) =>
+      current ? { ...current, providers: { ...current.providers, [name]: text } } : current,
+    )
+  }
 
-    const parsed = Number.parseFloat(draftThreshold)
-    if (!Number.isFinite(parsed) || parsed < 0) {
-      setProblem('threshold must be a number of dollars, zero or more')
-      setDraftThreshold(settings.lowBalanceThreshold.toFixed(2))
+  async function save() {
+    if (!settings || !draft) return
+
+    const threshold = Number.parseFloat(draft.threshold)
+    if (!Number.isFinite(threshold) || threshold < 0) {
+      setProblem('the default threshold must be a number of dollars, zero or more')
       return
     }
 
-    void persist({
-      interval: settings.pollIntervalMinutes,
-      threshold: parsed,
-      autostart,
-      notify,
-    })
-  }
+    // Collected and checked first, so one bad row cannot leave the form half
+    // written.
+    const overrides: { name: string; value: number | null }[] = []
 
-  function toggleAutostart() {
-    if (!settings) return
+    for (const provider of settings.providers) {
+      const text = (draft.providers[provider.name] ?? '').trim()
+      const stored = provider.lowBalanceThreshold
 
-    const next = !autostart
-    setAutostart(next)
-    void persist({
-      interval: settings.pollIntervalMinutes,
-      threshold: settings.lowBalanceThreshold,
-      autostart: next,
-      notify,
-    })
-  }
-
-  function toggleNotify(which: 'low' | 'errors') {
-    if (!settings) return
-
-    const next = { ...notify, [which]: !notify[which] }
-    setNotify(next)
-    void persist({
-      interval: settings.pollIntervalMinutes,
-      threshold: settings.lowBalanceThreshold,
-      autostart,
-      notify: next,
-    })
-  }
-
-  /** Thresholds are written per row, so they get their own call. */
-  async function setProviderThreshold(provider: string, raw: string) {
-    const trimmed = raw.trim()
-
-    try {
-      if (trimmed === '') {
-        // Empty means "use the app default", which is not a threshold of zero.
-        await api.setProviderThreshold(provider, null)
-      } else {
-        const parsed = Number.parseFloat(trimmed)
-        if (!Number.isFinite(parsed) || parsed < 0) {
-          setProblem('threshold must be a number of dollars, zero or more')
-          return
-        }
-        await api.setProviderThreshold(provider, parsed)
+      if (text === '') {
+        // Blank means "use the app default", which is not a threshold of zero.
+        if (stored !== null) overrides.push({ name: provider.name, value: null })
+        continue
       }
 
-      setNote('saved')
+      const parsed = Number.parseFloat(text)
+      if (!Number.isFinite(parsed) || parsed < 0) {
+        setProblem(`${provider.displayName}: enter a number of dollars, zero or more`)
+        return
+      }
+
+      if (parsed !== stored) overrides.push({ name: provider.name, value: parsed })
+    }
+
+    setSaving(true)
+    try {
+      await api.saveSettings(
+        {
+          pollIntervalMinutes: draft.interval,
+          lowBalanceThreshold: threshold,
+          notifyLowBalance: draft.notifyLow,
+          notifyKeyErrors: draft.notifyErrors,
+        },
+        draft.autostart,
+      )
+
+      for (const override of overrides) {
+        await api.setProviderThreshold(override.name, override.value)
+      }
+
       await load()
     } catch (error) {
       setProblem(String(error))
+    } finally {
+      setSaving(false)
     }
   }
 
-  if (!settings) {
+  if (!settings || !draft) {
     return (
       <div className="flex-1 p-4">
         <Label className="text-ink-muted">{problem ? 'Could not read settings' : 'Loading'}</Label>
@@ -190,6 +195,8 @@ export function Settings({ onClose }: { onClose: () => void }) {
       </div>
     )
   }
+
+  const dirty = differs(settings, draft)
 
   return (
     <div className="flex-1 p-4">
@@ -216,10 +223,10 @@ export function Settings({ onClose }: { onClose: () => void }) {
                 <button
                   key={minutes}
                   type="button"
-                  onClick={() => chooseInterval(minutes)}
-                  aria-pressed={draftInterval === minutes}
+                  onClick={() => edit({ interval: minutes })}
+                  aria-pressed={draft.interval === minutes}
                   className={`label-sm rounded-md px-2.5 py-1 transition ${
-                    draftInterval === minutes
+                    draft.interval === minutes
                       ? 'bg-amber text-[#1A1408]'
                       : 'text-ink-dim hover:text-ink'
                   }`}
@@ -257,11 +264,10 @@ export function Settings({ onClose }: { onClose: () => void }) {
             <div className="flex shrink-0 items-center gap-2 rounded-lg border border-line bg-inset px-3 py-2">
               <span className="label text-ink-muted">$</span>
               <input
-                value={draftThreshold}
-                onChange={(event) => setDraftThreshold(event.target.value)}
-                onBlur={commitThreshold}
+                value={draft.threshold}
+                onChange={(event) => edit({ threshold: event.target.value })}
                 onKeyDown={(event) => {
-                  if (event.key === 'Enter') commitThreshold()
+                  if (event.key === 'Enter') void save()
                 }}
                 className="num w-[54px] bg-transparent text-right text-[12px] text-ink outline-none"
               />
@@ -276,8 +282,8 @@ export function Settings({ onClose }: { onClose: () => void }) {
               </div>
             </div>
             <Switch
-              on={notify.low}
-              onToggle={() => toggleNotify('low')}
+              on={draft.notifyLow}
+              onToggle={() => edit({ notifyLow: !draft.notifyLow })}
               label="Notify when a balance drops below its threshold"
             />
           </div>
@@ -290,8 +296,8 @@ export function Settings({ onClose }: { onClose: () => void }) {
               </div>
             </div>
             <Switch
-              on={notify.errors}
-              onToggle={() => toggleNotify('errors')}
+              on={draft.notifyErrors}
+              onToggle={() => edit({ notifyErrors: !draft.notifyErrors })}
               label="Notify when a key stops working"
             />
           </div>
@@ -321,11 +327,11 @@ export function Settings({ onClose }: { onClose: () => void }) {
               <div className="flex items-center justify-end gap-1.5">
                 <span className="label text-ink-muted">$</span>
                 <input
-                  defaultValue={provider.lowBalanceThreshold?.toFixed(2) ?? ''}
-                  placeholder={settings.lowBalanceThreshold.toFixed(2)}
-                  onBlur={(event) => void setProviderThreshold(provider.name, event.target.value)}
+                  value={draft.providers[provider.name] ?? ''}
+                  placeholder={draft.threshold}
+                  onChange={(event) => editProvider(provider.name, event.target.value)}
                   onKeyDown={(event) => {
-                    if (event.key === 'Enter') event.currentTarget.blur()
+                    if (event.key === 'Enter') void save()
                   }}
                   className="num w-[54px] rounded-md border border-line bg-inset px-1.5 py-1 text-right text-[12px] text-ink outline-none placeholder:text-ink-muted"
                 />
@@ -353,7 +359,11 @@ export function Settings({ onClose }: { onClose: () => void }) {
                 Starts in the tray, without opening the dashboard.
               </div>
             </div>
-            <Switch on={autostart} onToggle={toggleAutostart} label="Launch at login" />
+            <Switch
+              on={draft.autostart}
+              onToggle={() => edit({ autostart: !draft.autostart })}
+              label="Launch at login"
+            />
           </div>
         </div>
       </div>
@@ -382,15 +392,18 @@ export function Settings({ onClose }: { onClose: () => void }) {
       </div>
 
       {/* zone: footer */}
-      <div className="mt-10 flex items-center gap-3">
-        {note ? (
-          <Pill className={tones.teal.pill}>{note}</Pill>
+      <div className="mt-10 flex items-center gap-3 border-t border-line pt-4">
+        {dirty ? (
+          <Pill className={tones.amber.pill}>unsaved changes</Pill>
         ) : (
-          <span className="num text-[11px] text-ink-muted">changes are saved as you make them</span>
+          <span className="num text-[11px] text-ink-muted">all changes saved</span>
         )}
-        <div className="ml-auto">
+        <div className="ml-auto flex items-center gap-2">
           <Button variant="secondary" onClick={onClose}>
             Back to dashboard
+          </Button>
+          <Button variant="primary" disabled={!dirty || saving} onClick={() => void save()}>
+            {saving ? 'Saving…' : 'Save Changes'}
           </Button>
         </div>
       </div>

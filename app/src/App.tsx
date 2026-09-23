@@ -8,6 +8,7 @@ import { ProviderTable } from './components/ProviderTable'
 import { Settings } from './Settings'
 import {
   Button,
+  ConfirmDialog,
   Label,
   Pill,
   RefreshIcon,
@@ -65,6 +66,7 @@ export default function App() {
   const [ready, setReady] = useState(false)
   const [keyDraft, setKeyDraft] = useState('')
   const [chosen, setChosen] = useState<string | null>(null)
+  const [removing, setRemoving] = useState<ProviderOverview | null>(null)
 
   const started = useRef(false)
 
@@ -217,12 +219,10 @@ export default function App() {
     }
   }
 
+  /** Which provider the confirmation is for. The dialog replaces window.confirm,
+   *  which cannot be styled and looks like a page error rather than a question. */
   async function removeProvider(name: string) {
-    const confirmed = window.confirm(
-      `Remove the API key for ${name}?\n\nStored readings are kept, so adding the key back later keeps its history.`,
-    )
-    if (!confirmed) return
-
+    setRemoving(null)
     setBusy(true)
     try {
       await api.removeProvider(name)
@@ -509,7 +509,7 @@ export default function App() {
                     provider={row}
                     outcome={outcomes[row.name]}
                     readings={readings[row.name] ?? []}
-                    onRemove={() => void removeProvider(row.name)}
+                    onRemove={() => setRemoving(row)}
                     busy={busy}
                   />
                 ))}
@@ -548,6 +548,18 @@ export default function App() {
             in the database
           </span>
         </footer>
+      ) : null}
+
+      {removing ? (
+        <ConfirmDialog
+          title={`Remove the API key for ${removing.displayName}?`}
+          detail="Stored readings are kept, so adding the key back later keeps its history together."
+          confirmLabel="Remove key"
+          cancelLabel="Cancel"
+          busy={busy}
+          onConfirm={() => void removeProvider(removing.name)}
+          onCancel={() => setRemoving(null)}
+        />
       ) : null}
     </div>
   )

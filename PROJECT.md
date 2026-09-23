@@ -356,6 +356,24 @@ provider, its display name, the balance and the threshold; the wording is built
 where the toast is shown. Tests then assert on what happened rather than on a
 sentence, which does not have to be rewritten when the wording changes.
 
+**Settings has a Save Changes button, disabled until something differs.** This
+replaces save-on-change, which could not work for a form whose per-provider
+thresholds go through a different command: a bad row would leave the rest of the
+form already written. Everything is now validated first and written only once the
+whole form is acceptable. Differences are compared in cents, because that is all
+the field shows — a stored `5.555` displays as `5.56` and would otherwise open the
+screen already dirty with a change nobody made.
+
+**Removing a key asks in a small modal, not `window.confirm`.** The native dialog
+is a browser-chrome box that cannot be styled, blocks the whole webview, and reads
+as a different product sitting inside the window.
+
+**`cursor: pointer` is restored in `index.css`.** Tailwind v4 stopped inheriting
+the browser default on buttons, so every click target in the app — segments,
+switches, pills, the trash icon — was showing the plain arrow. One base-layer rule
+covers buttons, selects, summaries and `role="button"`, and excludes disabled
+controls so they cannot advertise a click they will not honour.
+
 ## Provider notes
 
 Checked against the live APIs rather than the documentation, because the two
