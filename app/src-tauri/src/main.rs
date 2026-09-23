@@ -603,7 +603,8 @@ struct ProviderSetting {
     display_name: String,
     /// Null when this provider uses the app default.
     low_balance_threshold: Option<f64>,
-    key_hint: Option<String>,
+    /// Never null: this list only holds providers that still have a key.
+    key_hint: String,
 }
 
 #[tauri::command]
@@ -614,18 +615,24 @@ fn settings(app: AppHandle) -> Result<SettingsView, String> {
     let current = load_settings(&connection).map_err(|error| error.to_string())?;
     let own = provider_thresholds(&connection).map_err(|error| error.to_string())?;
 
+    // Only providers that actually hold a key. Listing every supported provider
+    // meant a fresh install showed two rows and two threshold boxes, which reads
+    // as configuration that does not exist. A provider appears here once its key
+    // has been saved from the dashboard.
     let providers = PROVIDERS
         .iter()
-        .map(|name| ProviderSetting {
-            name: (*name).to_string(),
-            display_name: display_name(name).to_string(),
-            low_balance_threshold: own
-                .iter()
-                .find(|(provider, _)| provider == name)
-                .and_then(|(_, threshold)| *threshold),
-            key_hint: credential_hint(name),
+        .filter_map(|name| {
+            Some(ProviderSetting {
+                name: (*name).to_string(),
+                display_name: display_name(name).to_string(),
+                low_balance_threshold: own
+                    .iter()
+                    .find(|(provider, _)| provider == name)
+                    .and_then(|(_, threshold)| *threshold),
+                key_hint: credential_hint(name)?,
+            })
         })
-        .collect();
+        .collect::<Vec<_>>();
 
     // A path and a preference that can genuinely fail are reported as such
     // rather than defaulted, so the screen does not claim something it cannot

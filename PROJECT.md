@@ -395,6 +395,20 @@ only an app nobody had set up yet. A failed outcome now only forces
 already drew, and the identifier is a named constant in the core rather than a
 literal in both places, so the tray cannot drift from the string `kind()` returns.
 
+**Settings lists only providers that hold a key.** It used to render every entry
+in `PROVIDERS`, so a fresh install showed two rows and two threshold boxes reading
+`no key`, which looks like configuration that does not exist. A provider appears
+there once its key has been saved from the dashboard, and with nothing configured
+the section says so instead of printing an empty table. The threshold for a
+removed provider stays in the database and comes back with its key, the same way
+its readings do.
+
+**There is no "providers need attention" badge on the dashboard.** It counted low
+or failing providers in an amber block that sat between the balance and the
+provider count, in the middle of the strip. Each card already carries its own
+tint, the table carries a status dot, and the tray goes amber — so the badge was
+the fourth place saying the same thing, and the only one that read like a banner.
+
 ## Provider notes
 
 Checked against the live APIs rather than the documentation, because the two
@@ -421,8 +435,16 @@ Spend comes from `GET /v1/account/usage?days=N`, which reports `billed_usd`,
 `list_usd` and `saved_usd` over a **window**. The window is capped at 90 days —
 `days=365` is a 400 — so it is never a lifetime figure the way OpenRouter's
 `usage` is. Every snapshot therefore records `spend_window_days` next to the
-spend, and the dashboard only sums all-time figures into its headline. Adding a
-90-day figure to an all-time one would produce a total that means nothing.
+spend, which is what the table prints as `/90d`.
+
+The headline total sums **every** provider that reports a usage figure, window or
+not. An earlier version summed only the all-time ones on the grounds that a
+90-day figure added to an all-time one means nothing, but the effect was that the
+total silently counted OpenRouter and ignored CheaperInference entirely, which is
+worse than the imprecision it avoided. The label reads `Spent` rather than
+`Spent all time` for the same reason, and the per-provider window is still on the
+row that reports it. `Top-ups` keeps the all-time filter, because a purchased
+figure cannot be reconstructed from a window at all.
 
 The balance endpoint also reports `reserved_usd`, `threshold_usd` and
 `recharge_amount_usd`. The app reads `available_usd`, which is what the account

@@ -69,7 +69,7 @@ export interface ProviderSetting {
   displayName: string
   /** `null` when this provider uses the app default. */
   lowBalanceThreshold: number | null
-  keyHint: string | null
+  keyHint: string
 }
 
 /** The app-wide settings and the autostart preference, saved as one form. */

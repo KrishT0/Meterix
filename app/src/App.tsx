@@ -148,12 +148,11 @@ export default function App() {
   const totalBalance = balances.reduce((sum, row) => sum + (row.balance ?? 0), 0)
 
   const priced = shown.filter((row) => row.accountCredits !== null)
-  // Only all-time spend is summed. A windowed figure folded into the same total
-  // would be adding unlike numbers, so it is left to the table.
-  const allTimeSpend = shown.filter(
-    (row) => row.usage !== null && row.spendWindowDays === null,
-  )
-  const totalSpend = allTimeSpend.reduce((sum, row) => sum + (row.usage ?? 0), 0)
+  // Every provider that reports a usage figure counts, including one that only
+  // reports over a window. Filtering those out made the total silently
+  // OpenRouter-only, which is not what a spend total should mean.
+  const spend = shown.filter((row) => row.usage !== null)
+  const totalSpend = spend.reduce((sum, row) => sum + (row.usage ?? 0), 0)
   const totalPurchased = priced
     .filter((row) => row.usage !== null && row.spendWindowDays === null)
     .reduce((sum, row) => sum + (row.accountCredits ?? 0) + (row.usage ?? 0), 0)
@@ -175,11 +174,6 @@ export default function App() {
       : healths.includes('ok')
         ? 'teal'
         : 'muted'
-  const problems = overview.filter((row) => {
-    const health = healthOf(row, outcomes[row.name])
-    return row.configured && (health === 'low' || health === 'error')
-  })
-
   // Provider failures need somewhere to show even when nothing is configured.
   // Otherwise a key that never got saved leaves the empty state sitting there
   // saying nothing at all, which reads as a dead button.
@@ -373,9 +367,9 @@ export default function App() {
               </div>
               <div className="mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-1">
                 <span className="label-sm text-ink-muted">
-                  Spent all time{' '}
+                  Spent{' '}
                   <span className="num text-ink-dim">
-                    {allTimeSpend.length === 0 ? '—' : usd(totalSpend).slice(1)}
+                    {spend.length === 0 ? '—' : usd(totalSpend).slice(1)}
                   </span>
                 </span>
                 {totalPurchased > 0 ? (
@@ -392,15 +386,6 @@ export default function App() {
                 </span>
               </div>
             </div>
-
-            {problems.length > 0 ? (
-              <div className="mt-5 flex items-center gap-2 rounded-lg border border-amber-line bg-amber-tint px-3 py-2">
-                <span className="num text-[12px] text-amber-dim">
-                  {problems.length} provider{problems.length === 1 ? '' : 's'}{' '}
-                  {problems.length === 1 ? 'needs' : 'need'} attention
-                </span>
-              </div>
-            ) : null}
 
             <div className="num ml-auto mt-5 text-right text-[11px] text-ink-muted">
               <div className="label-sm">Providers</div>

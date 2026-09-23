@@ -308,43 +308,49 @@ export function Settings({ onClose }: { onClose: () => void }) {
       <div className="mt-10">
         <Label className="text-ink-muted">Providers</Label>
 
-        <div className="mt-3 border-y border-line">
-          <div className="grid grid-cols-[1.4fr_1.1fr_0.9fr] gap-3 border-b border-line pb-2 pt-2.5">
-            <span className="label-sm text-ink-muted">Provider</span>
-            <span className="label-sm text-ink-muted">Key</span>
-            <span className="label-sm text-right text-ink-muted">Low at</span>
-          </div>
-
-          {settings.providers.map((provider) => (
-            <div
-              key={provider.name}
-              className="grid grid-cols-[1.4fr_1.1fr_0.9fr] items-center gap-3 border-b border-line/60 py-2.5 last:border-b-0"
-            >
-              <span className="num text-[12px]">{provider.displayName}</span>
-              <span className="num truncate text-[11px] text-ink-dim">
-                {provider.keyHint ?? <span className="text-ink-muted">no key</span>}
-              </span>
-              <div className="flex items-center justify-end gap-1.5">
-                <span className="label text-ink-muted">$</span>
-                <input
-                  value={draft.providers[provider.name] ?? ''}
-                  placeholder={draft.threshold}
-                  onChange={(event) => editProvider(provider.name, event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter') void save()
-                  }}
-                  className="num w-[54px] rounded-md border border-line bg-inset px-1.5 py-1 text-right text-[12px] text-ink outline-none placeholder:text-ink-muted"
-                />
-              </div>
-            </div>
-          ))}
-
-          <div className="border-t border-line py-2">
+        {settings.providers.length === 0 ? (
+          <div className="mt-3 rounded-[10px] border border-line bg-inset px-3.5 py-2.5">
             <span className="num text-[11px] text-ink-muted">
-              Leave a provider blank to use the default. Its placeholder shows what that is.
+              No providers connected. Save a key on the dashboard and it appears here.
             </span>
           </div>
-        </div>
+        ) : (
+          <div className="mt-3 border-y border-line">
+            <div className="grid grid-cols-[1.4fr_1.1fr_0.9fr] gap-3 border-b border-line pb-2 pt-2.5">
+              <span className="label-sm text-ink-muted">Provider</span>
+              <span className="label-sm text-ink-muted">Key</span>
+              <span className="label-sm text-right text-ink-muted">Low at</span>
+            </div>
+
+            {settings.providers.map((provider) => (
+              <div
+                key={provider.name}
+                className="grid grid-cols-[1.4fr_1.1fr_0.9fr] items-center gap-3 border-b border-line/60 py-2.5 last:border-b-0"
+              >
+                <span className="num text-[12px]">{provider.displayName}</span>
+                <span className="num truncate text-[11px] text-ink-dim">{provider.keyHint}</span>
+                <div className="flex items-center justify-end gap-1.5">
+                  <span className="label text-ink-muted">$</span>
+                  <input
+                    value={draft.providers[provider.name] ?? ''}
+                    placeholder={draft.threshold}
+                    onChange={(event) => editProvider(provider.name, event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') void save()
+                    }}
+                    className="num w-[54px] rounded-md border border-line bg-inset px-1.5 py-1 text-right text-[12px] text-ink outline-none placeholder:text-ink-muted"
+                  />
+                </div>
+              </div>
+            ))}
+
+            <div className="border-t border-line py-2">
+              <span className="num text-[11px] text-ink-muted">
+                Leave a provider blank to use the default. Its placeholder shows what that is.
+              </span>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* zone: startup */}
