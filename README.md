@@ -1,0 +1,177 @@
+# Meterix
+
+A tray app that keeps track of how much credit you have left with your LLM API
+providers.
+
+It polls each provider on a timer, stores every reading, and puts a colour in
+your system tray for the worst thing happening right now: teal when everything is
+fine, amber when a balance has fallen under the threshold you set, copper when a
+key has stopped working. There is a dashboard behind it for the detail, and a
+popover on the tray icon when you only want a glance.
+
+## What it does
+
+- Checks every configured provider on a timer, 30 minutes by default.
+- Shows each provider's remaining balance, where the number came from, and when it was read.
+- Charts balance over time, using only readings from the credential you have now. Swap in a different account and the old readings are not drawn as one continuous line.
+- Keeps a per-provider low threshold, with an app-wide default for any provider that has none.
+- Sends a Windows notification when a balance crosses its threshold, and when a key is rejected. Each fires once per crossing, not once per poll.
+- Can start at login.
+
+Keys live in the OS keychain. They are never written to the database.
+
+## Getting it
+
+There are no published builds yet, so today you build it yourself. When there is
+a release, the installer will need no extra runtime on Windows 10 or 11, since
+WebView2 ships with Windows 11 and is a one-time download on 10.
+
+### What you need
+
+| | |
+|---|---|
+| Windows | 10 or 11. Linux and macOS are in the code but unverified. |
+| Rust | 1.85 or newer. Cargo workspaces here use edition 2024. |
+| Node | 22 or newer, for the frontend. |
+| WebView2 | Installed already on Windows 11. The Evergreen runtime on 10. |
+
+Nothing needs `libssl-dev` or OpenSSL. The dependency tree is rustls only, which
+is deliberate: it keeps Linux packaging from needing system crypto headers.
+
+### Build and run
+
+```powershell
+git clone <this repo>
+cd meterix-core/app
+npm install
+npm run tauri dev
+```
+
+That opens the dashboard with the poller running. For a release build:
+
+```powershell
+cd app
+npm run tauri build
+```
+
+The binary lands in `app/src-tauri/target/release/`. The installer step after it
+downloads NSIS on first use and writes to `target/release/bundle/`.
+
+**Use `npm run tauri build`, not `cargo build --release`.** A bare cargo build
+produces a dev-mode binary that loads the Vite dev server instead of the embedded
+frontend, so it opens an Edge error page with no JavaScript running at all. It
+looks like it worked. It cannot run.
+
+## First run
+
+The dashboard opens with an empty state and a key field. Paste a key, pick the
+provider it belongs to, and press Save key. The app verifies the key against the
+provider before storing it: a rejected key is not saved, and anything else is,
+with a warning if no balance could be read.
+
+Once a key is in, the provider gets a card, a line on the chart and a row in the
+table.
+
+## Where things live
+
+| | |
+|---|---|
+| Database | `%APPDATA%\meterix-core\meterix.db` |
+| Keys | Windows Credential Manager, service `meterix-core` |
+| Settings | The `settings` table inside the same database file |
+
+Set `METERIX_DB` to point at a different database. Useful for a second instance,
+or for trying something without touching your real readings.
+
+Removing a provider removes its keychain entry and its card, but keeps its stored
+readings, so adding the key back later keeps everything together. A key can also
+come from `OPENROUTER_KEY` or `CHEAPERINFERENCE_KEY`, which is how you track a
+provider without saving anything to the keychain. A stored key wins if there is
+one; the variable is the fallback.
+
+## Settings
+
+Reached from the dashboard header. There is no Save button on the page: changes
+are held until you press Save Changes, which stays disabled until something
+actually differs.
+
+- **Check balances every.** 15 minutes to 6 hours.
+- **Default low balance.** Used by any provider without its own threshold.
+- **Two notification switches**, for low balances and for rejected keys.
+- **Per-provider thresholds**, blank meaning "use the default".
+- **Launch at login.**
+- **Database path**, with a copy button.
+
+## Command line
+
+The core is a library with a thin CLI over it, useful for scripting and for
+checking a key without opening the app.
+
+```
+meterix-core fetch [provider]              read one provider, or all of them
+meterix-core history <provider> [limit]    recent readings, newest first
+meterix-core set-key <provider> <key>      store a key in the OS keychain
+meterix-core forget-key <provider>         remove a stored key
+```
+
+Providers are `openrouter` and `cheaperinference`. `limit` defaults to 20, which
+is about ten hours at the default poll rate.
+
+## What it costs to run
+
+Measured on a release build with two providers, ninety seconds after launch:
+
+| | |
+|---|---|
+| The app's own process | 29 MB |
+| WebView2, six processes | 374 MB |
+| Total memory | about 403 MB |
+| CPU while idle | 0.30 to 0.44% of one core |
+| Launch plus a full refresh | 0.20 CPU-seconds |
+| Binary | 15.8 MB |
+| Database | 32 KB for 80 readings, about 10 KB a day at the default rate |
+
+The CPU figure is the one that matters for something running all day: at a
+30-minute poll that is roughly 7 CPU-seconds per day. Most of the memory is the
+Edge runtime rather than anything this project builds.
+
+## Limits
+
+Worth knowing before you rely on it.
+
+- **Two providers.** The list is compiled in, not data. Adding one is a code change.
+- **No installer has been built.** The bundler fetches NSIS on first run, and that download has not completed in the environment this was developed in. The config is ready; nothing has been produced from it.
+- **Dark only.** There is no light theme.
+- **Native title bar.** The reference design has a custom one; the window uses the Windows chrome.
+- **Thresholds do not re-open notifications.** A key that gets rejected notifies; a balance crossing notifies. Editing a threshold recolours the tray straight away, but the toast for it arrives at the next poll, because a toast is tied to a reading.
+- **The chart has ten colours.** Past ten providers, colours repeat.
+- **Cross-platform is untested.** Linux needs an AppIndicator host for the tray and a Secret Service for keys.
+
+## Development
+
+```powershell
+cargo test                 # 35 core tests
+cargo clippy --all-targets
+cd app && npx tsc --noEmit
+cd app/src-tauri && cargo test && cargo clippy --all-targets
+```
+
+The core owns everything that talks to a provider, stores a reading or decides
+what a balance means. The Tauri crate owns windows, the tray and notifications.
+The React app owns presentation and nothing else, which is why it holds no
+thresholds and no copy for what a provider error means.
+
+`PROJECT.md` is the longer document: data model, the reasoning behind decisions
+that would otherwise look arbitrary, and an honest list of gaps. `mockup/index.html`
+is the design reference, showing all three surfaces at once.
+
+## Layout
+
+```
+src/                  the core, as a library with a CLI entry point
+app/                  the desktop app
+  src/                React dashboard, popover and settings
+  src-tauri/          Tauri shell: windows, tray, notifications, poller
+mockup/index.html     the whole app on one page
+PROJECT.md            design decisions, data model, known gaps
+```
