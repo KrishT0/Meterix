@@ -1,430 +1,698 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Meterix — scale and section separation</title>
-
+<title>Meterix — the whole app</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
-
-<script src="https://cdn.tailwindcss.com"></script>
-<script>
-  // Unchanged palette.
-  tailwind.config = {
-    theme: {
-      extend: {
-        colors: {
-          backdrop: '#131312', surface: '#1C1C1B', panel: '#232322', inset: '#1A1A19',
-          line: '#2E2E2C', 'line-strong': '#3A3A37', caption: '#202020',
-          ink: '#E9E7E2', 'ink-dim': '#A8A69E', 'ink-muted': '#7A7871',
-          amber: '#E0A64B', 'amber-dim': '#C8A24C', 'amber-line': '#6A5220', 'amber-tint': '#2E2418',
-          teal: '#4DB6AC', 'teal-dim': '#2F7D6E', 'teal-tint': '#17332C',
-          copper: '#D08A5C', 'copper-dim': '#C08159', 'copper-tint': '#33241A',
-        },
-        fontFamily: {
-          sans: ['Inter', 'system-ui', 'sans-serif'],
-          mono: ['"JetBrains Mono"', 'ui-monospace', 'monospace'],
-        },
-      },
-    },
-  };
-</script>
-
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400..700&family=JetBrains+Mono:wght@400..600&display=swap" rel="stylesheet">
 <style>
-  .label    { font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: .14em; text-transform: uppercase; }
-  .label-sm { font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: .14em; text-transform: uppercase; }
-  .num      { font-family: 'JetBrains Mono', monospace; font-variant-numeric: tabular-nums; }
-  ::-webkit-scrollbar { width: 10px; }
-  ::-webkit-scrollbar-track { background: #1A1A19; }
-  ::-webkit-scrollbar-thumb { background: #3A3A37; border-radius: 999px; }
+  :root {
+    --backdrop:#131312; --surface:#1C1C1B; --panel:#232322; --inset:#1A1A19;
+    --line:#2E2E2C; --line-strong:#3A3A37;
+    --ink:#E9E7E2; --ink-dim:#A8A69E; --ink-muted:#7A7871;
+    --amber:#E0A64B; --amber-dim:#C8A24C; --amber-line:#6A5220; --amber-tint:#2E2418;
+    --teal:#4DB6AC; --teal-dim:#2F7D6E; --teal-tint:#17332C;
+    --copper:#D08A5C; --copper-dim:#C08159; --copper-tint:#33241A;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--backdrop); color:var(--ink);
+    font-family:'JetBrains Mono',ui-monospace,monospace; -webkit-font-smoothing:antialiased; }
+  .shell { max-width:1120px; margin:0 auto; padding:30px 24px 90px; }
+  h1 { font-family:Inter,system-ui,sans-serif; font-size:21px; font-weight:600; letter-spacing:-0.015em; margin:8px 0 0; }
+  h2 { font-family:Inter,system-ui,sans-serif; font-size:15px; font-weight:600; margin:0; letter-spacing:-0.01em; }
+  .label { font-size:11px; letter-spacing:0.14em; text-transform:uppercase; color:var(--ink-muted); }
+  .label-sm { font-size:10px; letter-spacing:0.14em; text-transform:uppercase; }
+  .num { font-variant-numeric:tabular-nums; }
+  .dim { color:var(--ink-muted); }
+  .sub { color:var(--ink-muted); font-size:11.5px; line-height:1.75; margin:10px 0 0; max-width:84ch; }
+  .sub b, .why b, .note b, .cost b { color:var(--ink-dim); font-weight:400; }
+  section { margin-top:40px; border-top:1px solid var(--line); padding-top:22px; }
+  .sechead { display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; }
+  .badge { font-size:10px; letter-spacing:0.12em; text-transform:uppercase; padding:2px 7px;
+    border-radius:999px; border:1px solid var(--line-strong); color:var(--ink-dim); }
+  .badge.warn { border-color:var(--amber-line); color:var(--amber-dim); }
+  .why { color:var(--ink-muted); font-size:11px; line-height:1.75; margin:9px 0 0; max-width:84ch; }
+
+  /* ── the window frame ── */
+  .win { margin-top:16px; background:var(--backdrop); border:1px solid var(--line);
+    border-radius:12px; overflow:hidden; }
+  .wtop { display:flex; align-items:center; gap:9px; padding:10px 16px;
+    border-bottom:1px solid var(--line); background:var(--surface); }
+  .wbrand { font-family:Inter,system-ui,sans-serif; font-size:13px; font-weight:600; }
+  .wpill { display:inline-flex; align-items:center; gap:6px; font-size:10px; letter-spacing:0.1em;
+    text-transform:uppercase; border-radius:999px; padding:2px 9px; border:1px solid; }
+  .wpill.teal { color:var(--teal); border-color:var(--teal-dim); background:var(--teal-tint); }
+  .wpill.amber { color:var(--amber-dim); border-color:var(--amber-line); background:var(--amber-tint); }
+  .wsp { flex:1; }
+  .wbtn { font-size:11px; color:var(--ink-dim); border:1px solid var(--line-strong);
+    border-radius:8px; padding:5px 11px; background:var(--panel); }
+  .wupdated { font-size:11.5px; color:var(--ink-muted); }
+  .wbody { padding:16px 20px 20px; }
+  .zone { margin-top:26px; }
+  .zone:first-child { margin-top:0; }
+
+  .figrow { display:flex; align-items:flex-start; gap:32px; }
+  .bigfig { font-size:34px; line-height:1; font-weight:700; letter-spacing:-0.03em; margin-top:6px; }
+  .bigfig span { font-size:12px; font-weight:400; color:var(--ink-muted); margin-left:8px; }
+  .metaline { display:flex; flex-wrap:wrap; gap:16px; margin-top:10px; }
+  .provcount { margin-left:auto; text-align:right; margin-top:20px; }
+
+  .keyrow { display:flex; gap:8px; align-items:stretch; margin-top:16px; }
+  .keyin { flex:1; display:flex; align-items:center; gap:10px; border:1px solid var(--line);
+    background:var(--inset); border-radius:8px; padding:8px 12px; }
+  .keyin i { font-style:normal; font-size:10px; letter-spacing:0.14em; color:var(--ink-muted); }
+  .keyin em { font-style:normal; color:var(--ink-muted); font-size:12px; }
+  .pick { border:1px solid var(--line-strong); background:var(--panel); border-radius:8px;
+    padding:8px 12px; font-size:12px; display:flex; align-items:center; gap:7px; }
+  .savekey { background:var(--amber); color:#1A1408; border-radius:8px; padding:8px 18px; font-size:12px; }
+  .keynote { margin-top:8px; font-size:11px; color:var(--ink-muted); }
+
+  /* ── provider cards ── */
+  .cards { display:grid; grid-template-columns:1fr 1fr; gap:9px; margin-top:11px; }
+  .card { border-radius:10px; padding:12px 14px 13px; border:1px solid; }
+  .card.ok { background:var(--teal-tint); border-color:var(--teal-dim); }
+  .card.low { background:var(--amber-tint); border-color:var(--amber-line); }
+  .card.error { background:var(--copper-tint); border-color:var(--copper-dim); }
+  .chead { display:flex; align-items:center; gap:8px; }
+  .box { width:16px; height:16px; border-radius:4px; display:inline-grid; place-items:center;
+    font-size:10px; color:#0F1F1C; background:var(--teal); }
+  .box.off { background:transparent; border:1px solid var(--line-strong); }
+  .cname { font-family:Inter,system-ui,sans-serif; font-size:13px; font-weight:500; }
+  .trash { width:12px; height:12px; color:var(--ink-muted); }
+  .apikey { margin-left:auto; font-size:9.5px; letter-spacing:0.12em; text-transform:uppercase;
+    color:var(--ink-dim); border:1px solid var(--line-strong); border-radius:999px; padding:2px 8px; }
+  .clabel { margin-top:13px; font-size:10px; letter-spacing:0.14em; text-transform:uppercase; color:var(--ink-muted); }
+  .crow { display:flex; align-items:center; gap:14px; margin-top:4px; }
+  .cfig { font-size:18px; font-weight:600; }
+  .meter { margin-left:auto; display:inline-flex; gap:3px; align-items:center; font-size:10px; color:var(--ink-muted); }
+  .meter i { width:11px; height:4px; border-radius:1px; background:var(--teal); }
+  .meter i.off { background:var(--line-strong); }
+  .meter.empty i { background:var(--line-strong); }
+  .card.low .meter i { background:var(--amber); }
+  .card.error .meter i { background:var(--copper-dim); }
+  .cbasis { margin-top:9px; font-size:11px; color:var(--teal); }
+  .card.low .cbasis { color:var(--amber-dim); }
+  .card.error .cbasis { color:var(--copper); }
+  .cmeta { margin-top:7px; font-size:11px; color:var(--ink-dim); }
+  .ccredits { margin-top:5px; font-size:11px; color:var(--ink-dim); display:flex; align-items:center; gap:7px; }
+  .dot { width:7px; height:7px; border-radius:999px; display:inline-block; margin-right:7px; }
+  .dot.teal { background:var(--teal); } .dot.amber { background:var(--amber); }
+  .dot.copper { background:var(--copper); }
+
+  /* ── chart ── */
+  .chartbox { margin-top:11px; border:1px solid var(--line); border-radius:10px; background:var(--inset); padding:14px 16px 8px; }
+  .clegend { display:flex; gap:18px; justify-content:flex-end; margin-bottom:10px; }
+  .clegend span { display:inline-flex; align-items:center; gap:7px; font-size:10px;
+    letter-spacing:0.1em; text-transform:uppercase; color:var(--ink-muted); }
+
+  /* ── table ── */
+  table { width:100%; border-collapse:collapse; margin-top:11px; }
+  th { font-size:10px; letter-spacing:0.14em; text-transform:uppercase; color:var(--ink-muted);
+    text-align:left; font-weight:400; padding:0 0 8px; border-bottom:1px solid var(--line); }
+  td { padding:9px 0; font-size:12px; border-bottom:1px solid var(--line); }
+  th.num, td.num { text-align:right; }
+  tr:last-child td { border-bottom:none; }
+
+  .note { margin-top:26px; border:1px solid var(--line); background:var(--inset);
+    border-radius:10px; padding:12px 14px; font-size:11px; line-height:1.7; color:var(--ink-muted); }
+  .footer { display:flex; align-items:center; gap:12px; margin-top:18px; padding-top:12px;
+    border-top:1px solid var(--line); font-size:11px; color:var(--ink-muted); }
+
+  /* ── settings ── */
+  .crumb { display:flex; align-items:center; gap:10px; border-bottom:1px solid var(--line);
+    padding:12px 16px; font-size:12px; color:var(--ink-dim); }
+  .crumb b { font-family:Inter,system-ui,sans-serif; font-size:13px; font-weight:600; color:var(--ink); }
+  .srows { margin-top:11px; border-top:1px solid var(--line); border-bottom:1px solid var(--line); }
+  .srow2 { display:flex; align-items:flex-start; justify-content:space-between; gap:24px;
+    padding:12px 0; border-bottom:1px solid var(--line); }
+  .srow2:last-child { border-bottom:none; }
+  .stitle { font-size:12px; }
+  .sdesc { margin-top:5px; font-size:11px; color:var(--ink-muted); max-width:62ch; }
+  .segs { display:inline-flex; border:1px solid var(--line-strong); background:var(--inset);
+    border-radius:8px; padding:2px; flex:none; }
+  .segs span { font-size:10px; letter-spacing:0.12em; text-transform:uppercase; padding:5px 11px; border-radius:6px; color:var(--ink-dim); }
+  .segs span.on { background:var(--amber); color:#1A1408; }
+  .sw { width:32px; height:18px; border-radius:999px; background:var(--amber); position:relative; flex:none; margin-top:2px; }
+  .sw i { position:absolute; top:2px; right:2px; width:14px; height:14px; border-radius:999px; background:#1A1408; }
+  .sw.off { background:var(--line-strong); } .sw.off i { right:auto; left:2px; background:var(--ink-muted); }
+  .money { display:inline-flex; align-items:center; gap:8px; border:1px solid var(--line);
+    background:var(--inset); border-radius:8px; padding:8px 12px; flex:none; }
+  .sgrid { margin-top:11px; border-top:1px solid var(--line); border-bottom:1px solid var(--line); }
+  .shead, .srow { display:grid; grid-template-columns:1.4fr 1.1fr 0.9fr; gap:12px; align-items:center; padding:10px 0; }
+  .shead { padding:9px 0 8px; border-bottom:1px solid var(--line); }
+  .srow { border-bottom:1px solid var(--line); }
+  .srow:last-child { border-bottom:none; }
+  .sright { display:flex; align-items:center; justify-content:flex-end; gap:6px; }
+  .sin { border:1px solid var(--line); background:var(--inset); border-radius:6px;
+    padding:4px 7px; min-width:54px; text-align:right; font-size:12px; }
+  .savebar { display:flex; align-items:center; gap:12px; margin-top:26px;
+    padding-top:16px; border-top:1px solid var(--line); }
+  .spill { font-size:10px; letter-spacing:0.14em; text-transform:uppercase; color:var(--ink-muted); }
+  .sbtns { margin-left:auto; display:flex; gap:8px; }
+  .btn { font-size:11.5px; border-radius:8px; padding:7px 14px; }
+  .btn.sec { border:1px solid var(--line-strong); background:var(--panel); color:var(--ink-dim); }
+  .btn.pri { background:var(--amber); color:#1A1408; }
+
+  /* ── tray ── */
+  .traygrid { display:grid; grid-template-columns:340px 1fr; gap:26px; margin-top:16px; align-items:start; }
+  .pop { background:var(--surface); border:1px solid var(--line); border-radius:12px; overflow:hidden; }
+  .pophead { display:flex; align-items:center; gap:9px; border-bottom:1px solid var(--line); padding:10px 14px; }
+  .pophead .num:last-child { margin-left:auto; }
+  .popfoot { display:flex; gap:8px; border-top:1px solid var(--line); padding:10px 14px; }
+  .prow { display:flex; align-items:center; gap:10px; padding:8px 14px; font-size:12px; }
+  .pbal { margin-left:auto; }
+  .pbal.teal { color:var(--teal); } .pbal.copper { color:var(--copper); }
+  .trayicons { display:flex; gap:22px; flex-wrap:wrap; margin-top:6px; }
+  .ticon { text-align:center; }
+  .ticon .lbl { margin-top:9px; font-size:10px; letter-spacing:0.1em; text-transform:uppercase; color:var(--ink-muted); }
+  /* The tray mark: three descending bars, widest first. Mirrors status_icon(). */
+  .mark { position:relative; display:inline-block; width:32px; height:32px; border-radius:4px; background:var(--inset); border:1px solid var(--line); }
+  .mark i { position:absolute; left:50%; transform:translateX(-50%); height:15.6%; border-radius:1px; background:var(--ink-muted); }
+  .mark i:nth-child(1) { width:81%; top:12.5%; }
+  .mark i:nth-child(2) { width:56%; top:40.6%; }
+  .mark i:nth-child(3) { width:31%; top:68.8%; }
+  .mark.teal i { background:var(--teal); } .mark.amber i { background:var(--amber); }
+  .mark.copper i { background:var(--copper); }
+
+  .palette { display:grid; grid-template-columns:repeat(6,1fr); gap:10px; margin-top:14px; }
+  .swatch { border:1px solid var(--line); border-radius:8px; padding:9px; }
+  .swatch .bar { height:34px; border-radius:5px; margin-bottom:8px; }
+  .swatch .nm { font-size:11px; } .swatch .hx { font-size:10px; color:var(--ink-muted); margin-top:3px; }
+  .cost { color:var(--ink-muted); font-size:11px; line-height:1.75; margin:10px 0 0; max-width:84ch;
+    padding-left:12px; border-left:2px solid var(--line-strong); }
 </style>
 </head>
+<body>
+<div class="shell">
 
-<body class="bg-backdrop font-sans text-ink antialiased">
-<div class="mx-auto max-w-[1300px] px-10 py-12">
-
-  <header class="mb-10">
-    <h1 class="text-[20px] font-semibold tracking-[-0.01em]">Scale, and space between sections</h1>
-    <p class="num mt-2 max-w-[820px] text-[12px] leading-relaxed text-ink-muted">
-      Carries the smaller scale from before, and fixes something I got wrong in it: I shrank the
-      gaps between sections at the same time as the gaps inside them, so the cards, the chart and
-      the table read as one block. Density inside a section stays tight; separation between
-      sections goes up. Each zone is labelled with the gap above it below.
-    </p>
-  </header>
-
-  <!-- ════════════════════ A · dashboard, zones separated ════════════════════ -->
-  <div class="mb-5 flex items-baseline gap-3">
-    <span class="label text-ink-muted">A</span>
-    <span class="label-sm text-ink-dim">Full dashboard &nbsp;·&nbsp; zone gap 40px, gap inside a zone 16px</span>
-  </div>
-
-  <div class="mb-6 border border-line-strong">
-    <div class="flex h-7 items-center bg-caption">
-      <div class="flex flex-1 items-center gap-2 pl-3">
-        <span class="flex h-[14px] w-[14px] items-center justify-center rounded-[3px] bg-amber"><span class="num text-[7px] font-bold text-[#1A1408]">M</span></span>
-        <span class="text-[10px] text-ink-dim">Meterix</span>
-      </div>
-      <div class="flex h-7">
-        <span class="flex w-[42px] items-center justify-center text-[11px] text-ink-muted">&#9472;</span>
-        <span class="flex w-[42px] items-center justify-center text-[11px] text-ink-muted">&#9723;</span>
-        <span class="flex w-[42px] items-center justify-center text-[11px] text-ink-muted">&#10005;</span>
-      </div>
-    </div>
-
-    <div class="bg-surface">
-      <div class="flex items-center gap-2.5 border-b border-line px-5 py-3">
-        <span class="text-[13px] font-semibold tracking-[-0.01em]">Meterix</span>
-        <span class="label-sm flex items-center gap-1.5 rounded-full border border-teal-dim/50 px-2 py-0.5 text-teal">
-          <span class="h-[6px] w-[6px] rounded-full bg-teal"></span>2 tracked
-        </span>
-        <div class="ml-auto flex items-center gap-2.5">
-          <span class="num text-[11px] text-ink-muted">updated just now</span>
-          <button class="rounded-lg border border-line-strong px-3 py-1.5 text-[12px] font-medium">Refresh</button>
-        </div>
-      </div>
-
-      <div class="p-4">
-
-        <!-- ── zone 1: summary. tight, 16px ── -->
-        <div class="space-y-4">
-          <div class="flex items-start gap-8">
-            <div>
-              <div class="label text-ink-muted">Total balance</div>
-              <div class="mt-1.5 flex items-baseline gap-2">
-                <span class="num text-[34px] leading-none font-bold tracking-[-0.03em]">19.44</span>
-                <span class="num text-[12px] text-ink-muted">USD</span>
-              </div>
-              <div class="mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-1">
-                <span class="label-sm text-ink-muted">Spent all time <span class="num text-ink-dim">3.60</span></span>
-                <span class="label-sm text-ink-muted">Top-ups <span class="num text-ink-dim">9.99</span></span>
-                <span class="label-sm text-ink-muted">Burn <span class="num text-ink-dim">0.42/day</span></span>
-              </div>
-            </div>
-            <div class="num ml-auto mt-5 text-right text-[11px] text-ink-muted">
-              <div class="label-sm">Providers</div>
-              <div class="mt-1 text-ink-dim">2 of 2 configured</div>
-              <div class="label-sm mt-1">low below 2.00</div>
-            </div>
-          </div>
-
-          <div>
-            <div class="flex flex-wrap items-stretch gap-2">
-              <div class="flex min-w-[300px] flex-1 items-center gap-2.5 rounded-lg border border-line bg-inset px-3 py-2">
-                <span class="label text-ink-muted">Key</span>
-                <input placeholder="paste an api key" readonly class="num min-w-0 flex-1 bg-transparent text-[12px] text-ink outline-none placeholder:text-ink-muted">
-                <button class="flex items-center gap-1.5 rounded-md border border-line-strong bg-surface px-2 py-1">
-                  <span class="text-[11px] font-medium">OpenRouter</span>
-                  <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="#7A7871" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
-                </button>
-              </div>
-              <button class="rounded-lg bg-amber px-4 text-[12px] font-semibold text-[#1A1408]">Save key</button>
-            </div>
-            <div class="num mt-2 pl-1 text-[11px] text-ink-muted">stored for OpenRouter: <span class="text-ink-dim">sk-or-v1…2204</span></div>
-          </div>
-        </div>
-
-        <!-- ── zone 2: providers. 40px above, 12px inside ── -->
-        <div class="mt-10">
-          <div class="flex items-center justify-between">
-            <span class="label text-ink-muted">Providers</span>
-            <span class="num text-[11px] text-ink-muted">2 configured &middot; 2 readings stored</span>
-          </div>
-
-          <div class="mt-3 grid grid-cols-1 gap-2 lg:grid-cols-2">
-            <div class="rounded-[10px] border border-teal-dim/40 bg-teal-tint p-3.5">
-              <div class="flex items-center gap-2">
-                <span class="flex h-[16px] w-[16px] items-center justify-center rounded-[4px] bg-teal">
-                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#0F1F1C" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
-                </span>
-                <span class="text-[13px] font-medium">OpenRouter</span>
-                <span class="label-sm ml-auto rounded-full border border-line-strong px-2 py-0.5 text-ink-dim">Api key</span>
-              </div>
-              <div class="mt-3 flex items-end justify-between">
-                <div>
-                  <div class="label-sm text-ink-muted">Remaining</div>
-                  <div class="num mt-0.5 text-[18px] leading-none font-semibold text-teal">6.40</div>
-                </div>
-                <div class="flex items-end gap-[2px]">
-                  <span class="h-1.5 w-[7px] rounded-[2px] bg-teal-dim"></span><span class="h-1.5 w-[7px] rounded-[2px] bg-teal-dim"></span>
-                  <span class="h-1.5 w-[7px] rounded-[2px] bg-teal-dim"></span><span class="h-1.5 w-[7px] rounded-[2px] bg-teal-dim"></span>
-                  <span class="h-1.5 w-[7px] rounded-[2px] bg-teal-dim"></span><span class="h-1.5 w-[7px] rounded-[2px] bg-teal"></span>
-                  <span class="h-1.5 w-[7px] rounded-[2px] bg-teal"></span><span class="h-1.5 w-[7px] rounded-[2px] bg-teal"></span>
-                </div>
-              </div>
-              <div class="label-sm mt-2 text-teal">Account balance</div>
-              <div class="num mt-1 text-[11px] text-ink-dim">usage 3.60 &middot; checked just now</div>
-            </div>
-
-            <div class="rounded-[10px] border border-teal-dim/40 bg-teal-tint p-3.5">
-              <div class="flex items-center gap-2">
-                <span class="flex h-[16px] w-[16px] items-center justify-center rounded-[4px] bg-teal">
-                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#0F1F1C" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
-                </span>
-                <span class="text-[13px] font-medium">CheaperInference</span>
-                <span class="label-sm ml-auto rounded-full border border-line-strong px-2 py-0.5 text-ink-dim">Api key</span>
-              </div>
-              <div class="mt-3 flex items-end justify-between">
-                <div>
-                  <div class="label-sm text-ink-muted">Remaining</div>
-                  <div class="num mt-0.5 text-[18px] leading-none font-semibold text-teal">13.03</div>
-                </div>
-                <div class="flex items-end gap-[2px]">
-                  <span class="h-1.5 w-[7px] rounded-[2px] bg-teal-dim"></span><span class="h-1.5 w-[7px] rounded-[2px] bg-teal-dim"></span>
-                  <span class="h-1.5 w-[7px] rounded-[2px] bg-teal-dim"></span><span class="h-1.5 w-[7px] rounded-[2px] bg-teal-dim"></span>
-                  <span class="h-1.5 w-[7px] rounded-[2px] bg-teal-dim"></span><span class="h-1.5 w-[7px] rounded-[2px] bg-teal-dim"></span>
-                  <span class="h-1.5 w-[7px] rounded-[2px] bg-teal-dim"></span><span class="h-1.5 w-[7px] rounded-[2px] bg-teal"></span>
-                </div>
-              </div>
-              <div class="label-sm mt-2 text-teal">Account balance</div>
-              <div class="num mt-1 text-[11px] text-ink-dim">usage 1.97/90d &middot; checked just now</div>
-            </div>
-          </div>
-        </div>
-
-        <!-- ── zone 3: chart. 40px above ── -->
-        <div class="mt-10">
-          <div class="flex items-center justify-between">
-            <span class="label text-ink-muted">Balance over time &middot; 30 days</span>
-            <div class="flex items-center gap-3">
-              <span class="flex items-center gap-1.5"><span class="h-[6px] w-[6px] rounded-full bg-teal"></span><span class="label-sm text-ink-dim">OpenRouter</span></span>
-              <span class="flex items-center gap-1.5"><span class="h-[6px] w-[6px] rounded-full bg-copper"></span><span class="label-sm text-ink-dim">CheaperInference</span></span>
-            </div>
-          </div>
-          <svg viewBox="0 0 1080 170" preserveAspectRatio="none" class="mt-3 h-[170px] w-full">
-            <g stroke="#2E2E2C" stroke-width="1">
-              <line x1="0" y1="35" x2="1080" y2="35"/><line x1="0" y1="78" x2="1080" y2="78"/><line x1="0" y1="121" x2="1080" y2="121"/>
-            </g>
-            <path d="M0,155 L120,128 L240,102 L360,88 L480,94 L600,113 L720,125 L840,139 L960,146 L1080,150 L1080,170 L0,170 Z" fill="#2F7D6E"/>
-            <path d="M0,155 L120,102 L240,63 L360,48 L480,56 L600,89 L720,106 L840,125 L960,137 L1080,144 L1080,150 L960,146 L840,139 L720,125 L600,113 L480,94 L360,88 L240,102 L120,128 L0,155 Z" fill="#C08159"/>
-            <path d="M0,155 L120,102 L240,63 L360,48 L480,56 L600,89 L720,106 L840,125 L960,137 L1080,144" fill="none" stroke="#E8CFB6" stroke-width="1.6"/>
-          </svg>
-          <div class="num mt-2.5 flex items-center justify-between text-[11px] text-ink-muted">
-            <span>24 Aug</span><span>peak $19.44</span><span>23 Sep</span>
-          </div>
-        </div>
-
-        <!-- ── zone 4: table. 40px above ── -->
-        <div class="mt-10">
-          <div class="grid grid-cols-[1.5fr_1.2fr_0.9fr_0.9fr_0.9fr] gap-3 border-b border-line pb-2">
-            <span class="label text-ink-muted">Provider</span>
-            <span class="label text-ink-muted">Basis</span>
-            <span class="label text-right text-ink-muted">Balance</span>
-            <span class="label text-right text-ink-muted">Spend</span>
-            <span class="label text-right text-ink-muted">Checked</span>
-          </div>
-          <div class="grid grid-cols-[1.5fr_1.2fr_0.9fr_0.9fr_0.9fr] items-center gap-3 border-b border-line/60 py-2">
-            <span class="flex items-center gap-2"><span class="h-[6px] w-[6px] rounded-full bg-teal"></span><span class="num text-[12px]">OpenRouter</span></span>
-            <span class="label-sm text-teal-dim">account_credits</span>
-            <span class="num text-right text-[12px] text-teal">6.40</span>
-            <span class="num text-right text-[12px] text-ink-dim">3.60</span>
-            <span class="num text-right text-[12px] text-ink-muted">just now</span>
-          </div>
-          <div class="grid grid-cols-[1.5fr_1.2fr_0.9fr_0.9fr_0.9fr] items-center gap-3 py-2">
-            <span class="flex items-center gap-2"><span class="h-[6px] w-[6px] rounded-full bg-teal"></span><span class="num text-[12px]">CheaperInference</span></span>
-            <span class="label-sm text-teal-dim">account_credits</span>
-            <span class="num text-right text-[12px] text-teal">13.03</span>
-            <span class="num text-right text-[12px] text-ink-dim">1.97<span class="text-ink-muted">/90d</span></span>
-            <span class="num text-right text-[12px] text-ink-muted">just now</span>
-          </div>
-        </div>
-
-        <!-- ── zone 5: note. 40px above ── -->
-        <div class="mt-10 flex items-start gap-2.5 rounded-[10px] border border-line bg-inset px-3.5 py-2.5">
-          <p class="num text-[11px] leading-relaxed text-ink-muted">
-            Not every key reports a balance. Rows stored with
-            <span class="text-copper">basis = usage</span> hold spend instead, so they are kept out
-            of the chart.
-          </p>
-        </div>
-
-      </div>
-
-      <div class="mt-4 flex items-center gap-3 border-t border-line px-5 py-2.5">
-        <span class="num text-[11px] text-ink-muted">last reading just now &middot; 2 snapshots in the database</span>
-      </div>
-    </div>
-  </div>
-
-  <!-- ════════════════════ B · the gap, three ways ════════════════════ -->
-  <div class="mb-5 flex items-baseline gap-3">
-    <span class="label text-ink-muted">B</span>
-    <span class="label-sm text-ink-dim">The same two zones at 24, 32 and 40px &nbsp;·&nbsp; pick one</span>
-  </div>
-
-  <div class="mb-14 grid grid-cols-1 gap-6 lg:grid-cols-3">
-
-    <div class="rounded-[10px] border border-line bg-panel p-4">
-      <div class="flex items-center justify-between">
-        <span class="label-sm text-ink-dim">24px</span>
-        <span class="num text-[11px] text-ink-muted">what the app has now</span>
-      </div>
-      <div class="mt-4 rounded-lg border border-teal-dim/40 bg-teal-tint p-3">
-        <div class="label-sm text-ink-muted">Remaining</div>
-        <div class="num mt-0.5 text-[18px] leading-none font-semibold text-teal">6.40</div>
-      </div>
-      <div class="mt-6 rounded-lg border border-line bg-inset p-3">
-        <div class="label-sm text-ink-muted">Balance over time</div>
-        <div class="num mt-1.5 text-[11px] text-ink-muted">chart block</div>
-      </div>
-      <p class="num mt-4 text-[11px] leading-relaxed text-ink-muted">
-        Cards and chart still read as one object. This is the problem you spotted.
-      </p>
-    </div>
-
-    <div class="rounded-[10px] border border-line bg-panel p-4">
-      <div class="flex items-center justify-between">
-        <span class="label-sm text-ink-dim">32px</span>
-        <span class="num text-[11px] text-ink-muted">already a clear improvement</span>
-      </div>
-      <div class="mt-4 rounded-lg border border-teal-dim/40 bg-teal-tint p-3">
-        <div class="label-sm text-ink-muted">Remaining</div>
-        <div class="num mt-0.5 text-[18px] leading-none font-semibold text-teal">6.40</div>
-      </div>
-      <div class="mt-8 rounded-lg border border-line bg-inset p-3">
-        <div class="label-sm text-ink-muted">Balance over time</div>
-        <div class="num mt-1.5 text-[11px] text-ink-muted">chart block</div>
-      </div>
-      <p class="num mt-4 text-[11px] leading-relaxed text-ink-muted">
-        Clearly separate, without the page feeling sparse.
-      </p>
-    </div>
-
-    <div class="rounded-[10px] border border-teal-dim/40 bg-teal-tint p-4">
-      <div class="flex items-center justify-between">
-        <span class="label-sm text-teal">40px</span>
-        <span class="num text-[11px] text-teal">recommended</span>
-      </div>
-      <div class="mt-4 rounded-lg border border-teal-dim/40 bg-teal-tint p-3">
-        <div class="label-sm text-ink-muted">Remaining</div>
-        <div class="num mt-0.5 text-[18px] leading-none font-semibold text-teal">6.40</div>
-      </div>
-      <div class="mt-10 rounded-lg border border-line bg-inset p-3">
-        <div class="label-sm text-ink-muted">Balance over time</div>
-        <div class="num mt-1.5 text-[11px] text-ink-muted">chart block</div>
-      </div>
-      <p class="num mt-4 text-[11px] leading-relaxed text-ink-muted">
-        Unmistakable separation, and what section A uses. Costs about 64px of extra scroll
-        across the four gaps.
-      </p>
-    </div>
-  </div>
-
-  <!-- ════════════════════ C · first run and tray ════════════════════ -->
-  <div class="mb-5 flex items-baseline gap-3">
-    <span class="label text-ink-muted">C</span>
-    <span class="label-sm text-ink-dim">First run and tray &nbsp;·&nbsp; unchanged by this, shown for completeness</span>
-  </div>
-
-  <div class="mb-14 grid grid-cols-1 gap-6 lg:grid-cols-[1.4fr_320px]">
-    <div class="overflow-hidden rounded-[10px] border border-line-strong bg-surface">
-      <div class="flex items-center gap-2.5 border-b border-line px-5 py-3">
-        <span class="text-[13px] font-semibold tracking-[-0.01em]">Meterix</span>
-        <span class="label-sm flex items-center gap-1.5 rounded-full border border-line-strong px-2 py-0.5 text-ink-muted">
-          <span class="h-[6px] w-[6px] rounded-full bg-ink-muted"></span>0 tracked
-        </span>
-        <div class="ml-auto flex items-center gap-2.5">
-          <span class="num text-[11px] text-ink-muted">never refreshed</span>
-          <button class="rounded-lg border border-line-strong px-3 py-1.5 text-[12px] font-medium">Refresh</button>
-        </div>
-      </div>
-      <div class="p-4">
-        <div class="space-y-4">
-          <div>
-            <div class="label text-ink-muted">Total balance</div>
-            <div class="num mt-1.5 text-[34px] leading-none font-bold tracking-[-0.03em] text-ink-muted">&mdash;</div>
-            <div class="mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-1">
-              <span class="label-sm text-ink-muted">Spent all time <span class="num text-ink-dim">&mdash;</span></span>
-              <span class="label-sm text-ink-muted">Burn <span class="num text-ink-dim">&mdash;</span></span>
-            </div>
-          </div>
-          <div>
-            <div class="flex flex-wrap items-stretch gap-2">
-              <div class="flex min-w-[300px] flex-1 items-center gap-2.5 rounded-lg border border-line bg-inset px-3 py-2">
-                <span class="label text-ink-muted">Key</span>
-                <input placeholder="paste an api key" readonly class="num min-w-0 flex-1 bg-transparent text-[12px] text-ink outline-none placeholder:text-ink-muted">
-                <button class="flex items-center gap-1.5 rounded-md border border-line-strong bg-surface px-2 py-1">
-                  <span class="text-[11px] font-medium">OpenRouter</span>
-                  <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="#7A7871" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
-                </button>
-              </div>
-              <button class="rounded-lg border border-line-strong px-4 text-[12px] font-medium text-ink-muted">Save key</button>
-            </div>
-            <div class="num mt-2 pl-1 text-[11px] text-ink-muted">no key stored for OpenRouter</div>
-          </div>
-        </div>
-        <div class="mt-10 flex flex-col items-center rounded-[10px] border border-line bg-inset px-6 py-9 text-center">
-          <span class="flex h-9 w-9 items-center justify-center rounded-lg border border-line-strong bg-panel">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#7A7871" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg>
-          </span>
-          <h2 class="mt-4 text-[14px] font-medium">No providers connected</h2>
-          <p class="num mt-1.5 max-w-[420px] text-[11px] leading-relaxed text-ink-muted">
-            Paste a key above and choose the provider it belongs to. Keys go to your OS keychain
-            and are never written to the database.
-          </p>
-        </div>
-      </div>
-    </div>
-
-    <div>
-      <div class="label mb-3 text-ink-muted">Tray popover</div>
-      <div class="overflow-hidden rounded-[12px] border border-line-strong bg-surface shadow-[0_20px_50px_-18px_rgba(0,0,0,.9)]">
-        <div class="flex items-center gap-2 border-b border-line px-3.5 py-2.5">
-          <span class="h-[6px] w-[6px] rounded-full bg-teal"></span>
-          <span class="text-[12px] font-medium">Meterix</span>
-          <span class="num ml-auto text-[12px]">19.44</span>
-        </div>
-        <div class="divide-y divide-line/60">
-          <div class="flex items-center gap-2.5 px-3.5 py-2.5"><span class="h-[6px] w-[6px] rounded-full bg-teal"></span><span class="num text-[12px]">OpenRouter</span><span class="num ml-auto text-[12px]">6.40</span></div>
-          <div class="flex items-center gap-2.5 px-3.5 py-2.5"><span class="h-[6px] w-[6px] rounded-full bg-teal"></span><span class="num text-[12px]">CheaperInference</span><span class="num ml-auto text-[12px]">13.03</span></div>
-          <div class="flex items-center gap-2.5 px-3.5 py-2.5"><span class="h-[6px] w-[6px] rounded-full bg-amber"></span><span class="num text-[12px]">Groq</span><span class="num ml-auto text-[12px] text-amber">1.05</span></div>
-        </div>
-        <div class="flex items-center gap-2 border-t border-line px-3.5 py-2.5">
-          <span class="num text-[11px] text-ink-muted">2m ago</span>
-          <div class="ml-auto flex gap-1.5">
-            <button class="rounded-md border border-line-strong px-2.5 py-1 text-[11px]">Dashboard</button>
-            <button class="rounded-md bg-amber px-2.5 py-1 text-[11px] font-semibold text-[#1A1408]">Refresh</button>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- ════════════════════ D · numbers ════════════════════ -->
-  <div class="mb-5 flex items-baseline gap-3">
-    <span class="label text-ink-muted">D</span>
-    <span class="label-sm text-ink-dim">Every value that changes</span>
-  </div>
-
-  <div class="overflow-hidden rounded-[10px] border border-line">
-    <div class="grid grid-cols-[1.7fr_0.9fr_0.9fr_0.6fr] gap-4 border-b border-line bg-panel px-4 py-2">
-      <span class="label text-ink-muted">Element</span>
-      <span class="label text-right text-ink-muted">App now</span>
-      <span class="label text-right text-ink-muted">Proposed</span>
-      <span class="label text-right text-ink-muted">Change</span>
-    </div>
-    <div class="divide-y divide-line/60">
-      <div class="grid grid-cols-[1.7fr_0.9fr_0.9fr_0.6fr] gap-4 bg-teal-tint/40 px-4 py-2"><span class="num text-[12px] text-ink">Gap between zones</span><span class="num text-right text-[12px] text-ink-muted">24px</span><span class="num text-right text-[12px] text-teal">40px</span><span class="num text-right text-[12px] text-teal">+67%</span></div>
-      <div class="grid grid-cols-[1.7fr_0.9fr_0.9fr_0.6fr] gap-4 px-4 py-2"><span class="num text-[12px] text-ink-dim">Gap inside a zone</span><span class="num text-right text-[12px] text-ink-muted">24px</span><span class="num text-right text-[12px] text-teal">16px</span><span class="num text-right text-[12px] text-ink-muted">-33%</span></div>
-      <div class="grid grid-cols-[1.7fr_0.9fr_0.9fr_0.6fr] gap-4 px-4 py-2"><span class="num text-[12px] text-ink-dim">Total balance figure</span><span class="num text-right text-[12px] text-ink-muted">46px</span><span class="num text-right text-[12px] text-teal">34px</span><span class="num text-right text-[12px] text-ink-muted">-26%</span></div>
-      <div class="grid grid-cols-[1.7fr_0.9fr_0.9fr_0.6fr] gap-4 px-4 py-2"><span class="num text-[12px] text-ink-dim">Card balance figure</span><span class="num text-right text-[12px] text-ink-muted">22px</span><span class="num text-right text-[12px] text-teal">18px</span><span class="num text-right text-[12px] text-ink-muted">-18%</span></div>
-      <div class="grid grid-cols-[1.7fr_0.9fr_0.9fr_0.6fr] gap-4 px-4 py-2"><span class="num text-[12px] text-ink-dim">Provider name, app title</span><span class="num text-right text-[12px] text-ink-muted">15px</span><span class="num text-right text-[12px] text-teal">13px</span><span class="num text-right text-[12px] text-ink-muted">-13%</span></div>
-      <div class="grid grid-cols-[1.7fr_0.9fr_0.9fr_0.6fr] gap-4 px-4 py-2"><span class="num text-[12px] text-ink-dim">Body, table, input, buttons</span><span class="num text-right text-[12px] text-ink-muted">13px</span><span class="num text-right text-[12px] text-teal">12px</span><span class="num text-right text-[12px] text-ink-muted">-8%</span></div>
-      <div class="grid grid-cols-[1.7fr_0.9fr_0.9fr_0.6fr] gap-4 px-4 py-2"><span class="num text-[12px] text-ink-dim">Labels and pills</span><span class="num text-right text-[12px] text-ink-muted">11/10px</span><span class="num text-right text-[12px] text-ink-muted">unchanged</span><span class="num text-right text-[12px] text-ink-muted">&mdash;</span></div>
-      <div class="grid grid-cols-[1.7fr_0.9fr_0.9fr_0.6fr] gap-4 px-4 py-2"><span class="num text-[12px] text-ink-dim">Content padding</span><span class="num text-right text-[12px] text-ink-muted">24px</span><span class="num text-right text-[12px] text-teal">16px</span><span class="num text-right text-[12px] text-ink-muted">-33%</span></div>
-      <div class="grid grid-cols-[1.7fr_0.9fr_0.9fr_0.6fr] gap-4 px-4 py-2"><span class="num text-[12px] text-ink-dim">Card padding</span><span class="num text-right text-[12px] text-ink-muted">16px</span><span class="num text-right text-[12px] text-teal">14px</span><span class="num text-right text-[12px] text-ink-muted">-13%</span></div>
-      <div class="grid grid-cols-[1.7fr_0.9fr_0.9fr_0.6fr] gap-4 px-4 py-2"><span class="num text-[12px] text-ink-dim">Button, control padding</span><span class="num text-right text-[12px] text-ink-muted">14x8px</span><span class="num text-right text-[12px] text-teal">12x6px</span><span class="num text-right text-[12px] text-ink-muted">-25%</span></div>
-      <div class="grid grid-cols-[1.7fr_0.9fr_0.9fr_0.6fr] gap-4 px-4 py-2"><span class="num text-[12px] text-ink-dim">Table row padding</span><span class="num text-right text-[12px] text-ink-muted">12px</span><span class="num text-right text-[12px] text-teal">8px</span><span class="num text-right text-[12px] text-ink-muted">-33%</span></div>
-      <div class="grid grid-cols-[1.7fr_0.9fr_0.9fr_0.6fr] gap-4 px-4 py-2"><span class="num text-[12px] text-ink-dim">Card, control radius</span><span class="num text-right text-[12px] text-ink-muted">12/10px</span><span class="num text-right text-[12px] text-teal">10/8px</span><span class="num text-right text-[12px] text-ink-muted">-2px</span></div>
-      <div class="grid grid-cols-[1.7fr_0.9fr_0.9fr_0.6fr] gap-4 px-4 py-2"><span class="num text-[12px] text-ink-dim">Window default</span><span class="num text-right text-[12px] text-ink-muted">1180x780</span><span class="num text-right text-[12px] text-teal">1080x720</span><span class="num text-right text-[12px] text-ink-muted">-12%</span></div>
-    </div>
-  </div>
-
-  <p class="num mt-10 pb-4 text-center text-[11px] text-ink-muted">
-    mockup only &nbsp;·&nbsp; the app is untouched, still at 24px uniform and the original sizes
+  <div class="label">Mockup — the app on one page</div>
+  <h1>Meterix with six providers</h1>
+  <p class="sub">
+    The dashboard, the settings screen and the tray, all in one place, drawn with six providers
+    instead of the two the app ships with. Everything below uses the real palette, the real
+    type scale and the real geometry from <b>app/src</b> and <b>app/src-tauri/src/main.rs</b>,
+    so it can be compared against the running app line by line.
   </p>
+  <p class="sub">
+    <b>The app cannot show six providers today.</b> <b>PROVIDERS</b> in the core is
+    <b>[&quot;openrouter&quot;, &quot;cheaperinference&quot;]</b> — a fixed array of two. The extra four
+    here are illustrative, to show what the layout does when the list grows, and two real
+    problems fall out of it. Both are described at the bottom.
+  </p>
+
+  <!-- ══ dashboard ══════════════════════════════════════════════════════ -->
+  <section>
+    <div class="sechead"><h2>Dashboard</h2><span class="badge">built</span></div>
+    <p class="why">
+      Six cards in the two-column grid, six rows in the table, and the totals summing every
+      provider that reports a figure.
+    </p>
+
+    <div class="win">
+      <div class="wtop">
+        <span class="wbrand">Meterix</span>
+        <span class="wpill amber"><span class="dot amber" style="margin:0"></span>6 tracked</span>
+        <span class="wsp"></span>
+        <span class="wupdated">updated 1m ago</span>
+        <span class="wbtn">↻ Refresh</span>
+        <span class="wbtn">⚙ Settings</span>
+      </div>
+
+      <div class="wbody">
+        <div class="figrow">
+          <div>
+            <div class="label">Total balance</div>
+            <div class="bigfig">139.94<span>USD</span></div>
+            <div class="metaline">
+              <span class="label-sm dim">Spent <span style="color:var(--ink-dim)">90.39</span></span>
+              <span class="label-sm dim">Top-ups <span style="color:var(--ink-dim)">120.00</span></span>
+              <span class="label-sm dim">Burn <span style="color:var(--ink-dim)">14.62/day</span></span>
+            </div>
+          </div>
+          <div class="provcount">
+            <div class="label-sm">Providers</div>
+            <div style="margin-top:5px;color:var(--ink-dim)">6 of 6 configured</div>
+            <div class="label-sm" style="margin-top:5px">thresholds per provider</div>
+          </div>
+        </div>
+
+        <div class="keyrow">
+          <span class="keyin"><i>KEY</i><em>paste an api key</em></span>
+          <span class="pick">OpenRouter <span class="dim">▾</span></span>
+          <span class="savekey">Save key</span>
+        </div>
+        <div class="keynote">stored for OpenRouter: <span style="color:var(--ink-dim)">sk-or-v1…2204</span></div>
+
+        <div class="zone">
+          <div style="display:flex;align-items:baseline;justify-content:space-between">
+            <span class="label">Providers</span>
+            <span class="num" style="font-size:11px;color:var(--ink-muted)">6 configured · 72 readings stored</span>
+          </div>
+          <div class="cards"><div class="card low">
+  <div class="chead">
+    <span class="box on">✓</span>
+    <span class="cname">OpenRouter</span>
+    <svg class="trash" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 7h16M10 11v6M14 11v6M5 7l1 13h12l1-13M9 7V4h6v3"/></svg>
+    <span class="apikey">api key</span>
+  </div>
+  <div class="clabel">Remaining</div>
+  <div class="crow">
+    <span class="cfig num">6.40</span>
+    <span class="meter"><i class=""></i><i class=""></i><i class="off"></i><i class="off"></i><i class="off"></i><i class="off"></i><i class="off"></i><i class="off"></i><i class="off"></i><i class="off"></i></span>
+  </div>
+  <div class="cbasis">Account balance</div>
+  <div class="cmeta">usage 3.60 · checked 1m ago</div>
+  <div class="ccredits"><span class="dot amber"></span> credits 6.40</div>
+</div>
+<div class="card ok">
+  <div class="chead">
+    <span class="box on">✓</span>
+    <span class="cname">CheaperInference</span>
+    <svg class="trash" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 7h16M10 11v6M14 11v6M5 7l1 13h12l1-13M9 7V4h6v3"/></svg>
+    <span class="apikey">api key</span>
+  </div>
+  <div class="clabel">Remaining</div>
+  <div class="crow">
+    <span class="cfig num">10.09</span>
+    <span class="meter"><i class=""></i><i class=""></i><i class=""></i><i class=""></i><i class=""></i><i class=""></i><i class=""></i><i class=""></i><i class=""></i><i class=""></i></span>
+  </div>
+  <div class="cbasis">Account balance</div>
+  <div class="cmeta">usage 4.54/90d · checked 1m ago</div>
+  <div class="ccredits"><span class="dot teal"></span> credits 10.09</div>
+</div>
+<div class="card ok">
+  <div class="chead">
+    <span class="box on">✓</span>
+    <span class="cname">Anthropic</span>
+    <svg class="trash" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 7h16M10 11v6M14 11v6M5 7l1 13h12l1-13M9 7V4h6v3"/></svg>
+    <span class="apikey">api key</span>
+  </div>
+  <div class="clabel">Remaining</div>
+  <div class="crow">
+    <span class="cfig num">78.20</span>
+    <span class="meter"><i class=""></i><i class=""></i><i class=""></i><i class=""></i><i class=""></i><i class=""></i><i class=""></i><i class=""></i><i class=""></i><i class=""></i></span>
+  </div>
+  <div class="cbasis">Account balance</div>
+  <div class="cmeta">usage 41.80 · checked 1m ago</div>
+  <div class="ccredits"><span class="dot teal"></span> credits 78.20</div>
+</div>
+<div class="card ok">
+  <div class="chead">
+    <span class="box on">✓</span>
+    <span class="cname">Groq</span>
+    <svg class="trash" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 7h16M10 11v6M14 11v6M5 7l1 13h12l1-13M9 7V4h6v3"/></svg>
+    <span class="apikey">api key</span>
+  </div>
+  <div class="clabel">Remaining</div>
+  <div class="crow">
+    <span class="cfig num">42.15</span>
+    <span class="meter"><i class=""></i><i class=""></i><i class=""></i><i class=""></i><i class=""></i><i class=""></i><i class=""></i><i class=""></i><i class=""></i><i class=""></i></span>
+  </div>
+  <div class="cbasis">Account balance</div>
+  <div class="cmeta">usage 18.05 · checked 1m ago</div>
+  <div class="ccredits"><span class="dot teal"></span> credits 42.15</div>
+</div>
+<div class="card low">
+  <div class="chead">
+    <span class="box on">✓</span>
+    <span class="cname">Together AI</span>
+    <svg class="trash" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 7h16M10 11v6M14 11v6M5 7l1 13h12l1-13M9 7V4h6v3"/></svg>
+    <span class="apikey">api key</span>
+  </div>
+  <div class="clabel">Remaining</div>
+  <div class="crow">
+    <span class="cfig num">3.10</span>
+    <span class="meter"><i class=""></i><i class=""></i><i class="off"></i><i class="off"></i><i class="off"></i><i class="off"></i><i class="off"></i><i class="off"></i><i class="off"></i><i class="off"></i></span>
+  </div>
+  <div class="cbasis">Account balance</div>
+  <div class="cmeta">usage 22.40 · checked 1m ago</div>
+  <div class="ccredits"><span class="dot amber"></span> credits 3.10</div>
+</div>
+<div class="card error">
+  <div class="chead">
+    <span class="box off"></span>
+    <span class="cname">DeepInfra</span>
+    <svg class="trash" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 7h16M10 11v6M14 11v6M5 7l1 13h12l1-13M9 7V4h6v3"/></svg>
+    <span class="apikey">api key</span>
+  </div>
+  <div class="clabel">Remaining</div>
+  <div class="crow">
+    <span class="cfig num">—</span>
+    <span class="meter"><span class="meter empty">key rejected</span></span>
+  </div>
+  <div class="cbasis">key rejected</div>
+  <div class="cmeta"><span class="dot copper"></span> failed · 401 unauthorized</div>
+  <div class="ccredits"><span class="dot copper"></span> last known 3.10</div>
+</div></div>
+        </div>
+
+        <div class="zone">
+          <div class="chartbox">
+            <div class="clegend">
+              <span><span class="dot" style="margin:0;background:#4DB6AC"></span>OpenRouter</span><span><span class="dot" style="margin:0;background:#D08A5C"></span>CheaperInference</span><span><span class="dot" style="margin:0;background:#D08A5C"></span>Anthropic</span><span><span class="dot" style="margin:0;background:#D08A5C"></span>Groq</span><span><span class="dot" style="margin:0;background:#D08A5C"></span>Together AI</span>
+            </div>
+            <svg viewBox="0 0 1000 180" width="100%" height="180" role="img" aria-label="Balance over time">
+  <line x1="46" y1="172.0" x2="946" y2="172.0" stroke="#2E2E2C"/><line x1="46" y1="132.5" x2="946" y2="132.5" stroke="#2E2E2C"/><line x1="46" y1="93.0" x2="946" y2="93.0" stroke="#2E2E2C"/><line x1="46" y1="53.5" x2="946" y2="53.5" stroke="#2E2E2C"/><line x1="46" y1="14.0" x2="946" y2="14.0" stroke="#2E2E2C"/>
+  <g font-family="JetBrains Mono, monospace" font-variant-numeric="tabular-nums"><text x="0" y="175.0" fill="#7A7871" font-size="10">$0.00</text><text x="0" y="135.5" fill="#7A7871" font-size="10">$20.00</text><text x="0" y="96.0" fill="#7A7871" font-size="10">$40.00</text><text x="0" y="56.5" fill="#7A7871" font-size="10">$60.00</text><text x="0" y="17.0" fill="#7A7871" font-size="10">$80.00</text></g>
+  <polyline points="46.0,156.6 127.8,157.0 209.6,156.6 291.5,157.0 373.3,157.9 455.1,157.9 536.9,157.6 618.7,158.2 700.5,159.0 782.4,158.7 864.2,158.7 946.0,159.5" fill="none" stroke="#4DB6AC" stroke-width="1.5" stroke-linejoin="round"/><circle cx="946.0" cy="159.5" r="3" fill="#4DB6AC"/><text x="956" y="163.0" fill="#4DB6AC" font-size="11">$6.40</text><polyline points="46.0,148.1 127.8,148.8 209.6,148.3 291.5,148.6 373.3,149.8 455.1,150.1 536.9,149.6 618.7,150.3 700.5,151.5 782.4,151.4 864.2,151.1 946.0,152.1" fill="none" stroke="#D08A5C" stroke-width="1.5" stroke-linejoin="round"/><circle cx="946.0" cy="152.1" r="3" fill="#D08A5C"/><text x="956" y="155.6" fill="#D08A5C" font-size="11">$10.09</text><polyline points="46.0,4.4 127.8,7.9 209.6,7.7 291.5,6.7 373.3,9.8 455.1,12.5 536.9,11.3 618.7,11.5 700.5,15.2 782.4,16.6 864.2,15.1 946.0,16.6" fill="none" stroke="#D08A5C" stroke-width="1.5" stroke-linejoin="round"/><circle cx="946.0" cy="16.6" r="3" fill="#D08A5C"/><text x="956" y="20.1" fill="#D08A5C" font-size="11">$78.20</text><polyline points="46.0,81.4 127.8,81.9 209.6,80.6 291.5,82.2 373.3,84.8 455.1,84.3 536.9,83.6 618.7,86.0 700.5,87.8 782.4,86.6 864.2,86.8 946.0,89.7" fill="none" stroke="#D08A5C" stroke-width="1.5" stroke-linejoin="round"/><circle cx="946.0" cy="89.7" r="3" fill="#D08A5C"/><text x="956" y="93.2" fill="#D08A5C" font-size="11">$42.15</text><polyline points="46.0,163.3 127.8,163.1 209.6,163.1 291.5,163.9 373.3,164.3 455.1,164.0 536.9,164.3 618.7,165.1 700.5,165.3 782.4,165.0 864.2,165.5 946.0,166.2" fill="none" stroke="#D08A5C" stroke-width="1.5" stroke-linejoin="round"/><circle cx="946.0" cy="166.2" r="3" fill="#D08A5C"/><text x="956" y="169.7" fill="#D08A5C" font-size="11">$3.10</text>
+</svg>
+          </div>
+          <p class="why" style="margin-top:9px">
+            Five lines, and every one after the first is the same copper. That is what the app
+            does today — see the note at the bottom.
+          </p>
+        </div>
+
+        <div class="zone">
+          <span class="label">Readings</span>
+          <table>
+            <thead><tr>
+              <th>Provider</th><th class="num">Balance</th><th>Basis</th>
+              <th class="num">Spend</th><th class="num">Low at</th><th>Checked</th>
+            </tr></thead>
+            <tbody><tr>
+  <td><span class="dot amber"></span>OpenRouter</td>
+  <td class="num">6.40</td>
+  <td class="dim">account credits</td>
+  <td class="num">3.60</td>
+  <td class="num">$15.00</td>
+  <td class="dim">1m ago</td>
+</tr>
+<tr>
+  <td><span class="dot teal"></span>CheaperInference</td>
+  <td class="num">10.09</td>
+  <td class="dim">account credits</td>
+  <td class="num">4.54<span class="dim">/90d</span></td>
+  <td class="num">$5.00</td>
+  <td class="dim">1m ago</td>
+</tr>
+<tr>
+  <td><span class="dot teal"></span>Anthropic</td>
+  <td class="num">78.20</td>
+  <td class="dim">account credits</td>
+  <td class="num">41.80</td>
+  <td class="num">$20.00</td>
+  <td class="dim">1m ago</td>
+</tr>
+<tr>
+  <td><span class="dot teal"></span>Groq</td>
+  <td class="num">42.15</td>
+  <td class="dim">account credits</td>
+  <td class="num">18.05</td>
+  <td class="num">$10.00</td>
+  <td class="dim">1m ago</td>
+</tr>
+<tr>
+  <td><span class="dot amber"></span>Together AI</td>
+  <td class="num">3.10</td>
+  <td class="dim">account credits</td>
+  <td class="num">22.40</td>
+  <td class="num">$10.00</td>
+  <td class="dim">1m ago</td>
+</tr>
+<tr>
+  <td><span class="dot copper"></span>DeepInfra</td>
+  <td class="num">—</td>
+  <td class="dim">—</td>
+  <td class="num">—</td>
+  <td class="num">$5.00</td>
+  <td class="dim">unauthorized</td>
+</tr></tbody>
+          </table>
+        </div>
+
+        <div class="note">
+          Not every key reports a balance. Rows stored with
+          <span style="color:var(--copper)">basis = usage</span> hold spend instead, so they are
+          kept out of the chart. A rising spend line would read like a healthy balance.
+        </div>
+      </div>
+
+      <div class="footer" style="margin:0;padding:10px 20px;border-top:1px solid var(--line)">
+        last reading 1m ago · 72 snapshots in the database
+      </div>
+    </div>
+  </section>
+
+  <!-- ══ settings ════════════════════════════════════════════════════════ -->
+  <section>
+    <div class="sechead"><h2>Settings</h2><span class="badge">built</span></div>
+    <p class="why">
+      The Providers zone lists only providers that hold a key, one row each, with the app default
+      as the placeholder on any row left blank. Everything is edited in a draft and written by
+      Save Changes, which stays disabled until something actually differs.
+    </p>
+
+    <div class="win">
+      <div class="crumb">‹ Dashboard <span class="dim">/</span> <b>Settings</b></div>
+      <div class="wbody">
+        <div>
+          <div class="label">Polling</div>
+          <div class="srows">
+            <div class="srow2">
+              <div>
+                <div class="stitle">Check balances every</div>
+                <div class="sdesc">Applied to every provider. Shorter intervals mean more requests to each one.</div>
+              </div>
+              <span class="segs"><span>15m</span><span class="on">30m</span><span>1h</span><span>6h</span></span>
+            </div>
+            <div class="srow2">
+              <div>
+                <div class="stitle">Keep polling when the dashboard is closed</div>
+                <div class="sdesc">Always on. Closing the window hides it; the tray keeps running.</div>
+              </div>
+              <span class="label-sm dim">always on</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="zone">
+          <div class="label">Alerts</div>
+          <div class="srows">
+            <div class="srow2">
+              <div>
+                <div class="stitle">Default low balance</div>
+                <div class="sdesc">Used for any provider without its own. Turns the tray amber.</div>
+              </div>
+              <span class="money"><span class="dim">$</span><span class="num">5.00</span></span>
+            </div>
+            <div class="srow2">
+              <div>
+                <div class="stitle">Notify when a balance drops below its threshold</div>
+                <div class="sdesc">Once, at the moment it crosses. The tray stays amber until you top up.</div>
+              </div>
+              <span class="sw"><i></i></span>
+            </div>
+            <div class="srow2">
+              <div>
+                <div class="stitle">Notify when a key stops working</div>
+                <div class="sdesc">A rejected key means this provider has quietly stopped being tracked.</div>
+              </div>
+              <span class="sw"><i></i></span>
+            </div>
+          </div>
+        </div>
+
+        <div class="zone">
+          <div class="label">Providers</div>
+          <div class="sgrid">
+            <div class="shead">
+              <span class="label-sm">Provider</span><span class="label-sm">Key</span>
+              <span class="label-sm" style="text-align:right">Low at</span>
+            </div>
+            <div class="srow">
+  <span class="num">OpenRouter</span>
+  <span class="dim num">sk-or-v1…2204</span>
+  <span class="sright"><span class="dim">$</span><span class="sin">15.00</span></span>
+</div>
+<div class="srow">
+  <span class="num">CheaperInference</span>
+  <span class="dim num">ci_live_…6d96</span>
+  <span class="sright"><span class="dim">$</span><span class="sin">5.00</span></span>
+</div>
+<div class="srow">
+  <span class="num">Anthropic</span>
+  <span class="dim num">sk-ant-…9f21</span>
+  <span class="sright"><span class="dim">$</span><span class="sin">20.00</span></span>
+</div>
+<div class="srow">
+  <span class="num">Groq</span>
+  <span class="dim num">gsk_…7c3d</span>
+  <span class="sright"><span class="dim">$</span><span class="sin">10.00</span></span>
+</div>
+<div class="srow">
+  <span class="num">Together AI</span>
+  <span class="dim num">tgp_v1_…4b88</span>
+  <span class="sright"><span class="dim">$</span><span class="sin">10.00</span></span>
+</div>
+<div class="srow">
+  <span class="num">DeepInfra</span>
+  <span class="dim num">di_…2a0f</span>
+  <span class="sright"><span class="dim">$</span><span class="sin">5.00</span></span>
+</div>
+          </div>
+          <p class="why" style="margin-top:10px">
+            Leave a provider blank to use the default. Its placeholder shows what that is.
+          </p>
+        </div>
+
+        <div class="zone">
+          <div class="label">Startup</div>
+          <div class="srows">
+            <div class="srow2">
+              <div>
+                <div class="stitle">Launch at login</div>
+                <div class="sdesc">Starts in the tray, without opening the dashboard.</div>
+              </div>
+              <span class="sw off"><i></i></span>
+            </div>
+          </div>
+        </div>
+
+        <div class="zone">
+          <div class="label">Data</div>
+          <div class="srows">
+            <div class="srow2">
+              <div>
+                <div class="stitle">Database</div>
+                <div class="sdesc">C:\Users\krshn\AppData\Roaming\meterix-core\meterix.db</div>
+              </div>
+              <span class="btn sec">Copy path</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="savebar">
+          <span class="spill">all changes saved</span>
+          <span class="sbtns"><span class="btn sec">Back to dashboard</span><span class="btn pri">Save Changes</span></span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══ tray ════════════════════════════════════════════════════════════ -->
+  <section>
+    <div class="sechead"><h2>Tray</h2><span class="badge">built</span></div>
+    <p class="why">
+      The icon is one mark in four colours: grey while nothing is configured, teal when everything
+      is healthy, amber when any provider is under its threshold, copper only when a credential
+      has actually been rejected. A missing key is grey, not copper — an unconfigured app is not
+      a fault.
+    </p>
+
+    <div class="traygrid">
+      <div class="pop">
+        <div class="pophead">
+          <span class="dot amber" style="margin:0"></span>
+          <span style="font-size:12px">Meterix</span>
+          <span class="num" style="font-size:12px">139.94</span>
+        </div>
+        <div class="prow">
+  <span class="dot teal"></span>
+  <span class="num ">OpenRouter</span>
+  <span class="num pbal teal">6.40</span>
+</div>
+<div class="prow">
+  <span class="dot teal"></span>
+  <span class="num ">CheaperInference</span>
+  <span class="num pbal teal">10.09</span>
+</div>
+<div class="prow">
+  <span class="dot teal"></span>
+  <span class="num ">Anthropic</span>
+  <span class="num pbal teal">78.20</span>
+</div>
+<div class="prow">
+  <span class="dot teal"></span>
+  <span class="num ">Groq</span>
+  <span class="num pbal teal">42.15</span>
+</div>
+<div class="prow">
+  <span class="dot teal"></span>
+  <span class="num ">Together AI</span>
+  <span class="num pbal teal">3.10</span>
+</div>
+<div class="prow">
+  <span class="dot copper"></span>
+  <span class="num dim">DeepInfra</span>
+  <span class="num pbal copper">failed</span>
+</div>
+        <div class="popfoot"><span class="btn sec">Open dashboard</span><span class="btn sec">Refresh</span></div>
+      </div>
+
+      <div>
+        <div class="label">Icon states</div>
+        <div class="trayicons">
+          <div class="ticon"><span class="mark"><i></i><i></i><i></i></span><div class="lbl">Idle</div></div>
+          <div class="ticon"><span class="mark teal"><i></i><i></i><i></i></span><div class="lbl">Healthy</div></div>
+          <div class="ticon"><span class="mark amber"><i></i><i></i><i></i></span><div class="lbl">Under</div></div>
+          <div class="ticon"><span class="mark copper"><i></i><i></i><i></i></span><div class="lbl">Rejected</div></div>
+        </div>
+        <p class="why" style="margin-top:16px">
+          The popover's header dot follows the worst health across every provider, so with two
+          under their threshold it is amber. Its per-row dots do not: each row shows
+          <b>failed ? copper : teal</b>, so a provider that is merely low still gets a teal dot
+          next to an amber header. The dashboard's own badge for this was removed on request, so
+          the row dots are now the only place a low provider is not marked as low.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══ what this surfaces ══════════════════════════════════════════════ -->
+  <section>
+    <div class="sechead">
+      <h2>What six providers surfaces</h2>
+      <span class="badge warn">needs a decision</span>
+    </div>
+
+    <p class="why">
+      <b>1. The chart has two colours for any number of providers.</b>
+      <b>App.tsx</b> assigns <b>tone: index === 0 ? &quot;teal&quot; : &quot;copper&quot;</b>, and
+      <b>BalanceChart</b> knows four tones in total — teal, copper, amber and muted, where muted
+      means &quot;could not be read&quot;. So five providers produce one teal line and four identical
+      copper ones, and there is no way to tell which is which except by their end labels.
+    </p>
+    <p class="why">
+      Fixing it means a categorical palette of at least six, kept clear of the three colours that
+      already carry meaning — amber is &quot;low&quot;, copper is &quot;failed&quot;, teal is
+      &quot;healthy&quot; — and legible on the dark panel. Something like:
+    </p>
+    <div class="palette">
+      <div class="swatch"><div class="bar" style="background:#4DB6AC"></div><div class="nm">Teal</div><div class="hx">#4DB6AC</div></div>
+      <div class="swatch"><div class="bar" style="background:#7C9CBF"></div><div class="nm">Slate blue</div><div class="hx">#7C9CBF</div></div>
+      <div class="swatch"><div class="bar" style="background:#B79BD8"></div><div class="nm">Lilac</div><div class="hx">#B79BD8</div></div>
+      <div class="swatch"><div class="bar" style="background:#8FBF7A"></div><div class="nm">Moss</div><div class="hx">#8FBF7A</div></div>
+      <div class="swatch"><div class="bar" style="background:#D98BA8"></div><div class="nm">Rose</div><div class="hx">#D98BA8</div></div>
+      <div class="swatch"><div class="bar" style="background:#9AA6B2"></div><div class="nm">Ash</div><div class="hx">#9AA6B2</div></div>
+    </div>
+    <p class="cost">
+      Shown as swatches only, not drawn into the chart above, because nothing of the sort is built
+      and picking six colours is a design decision rather than a repair. The four existing tones
+      keep their meanings either way.
+    </p>
+
+    <p class="why" style="margin-top:20px">
+      <b>2. Six providers means six API calls every poll.</b> <b>fetch_balances</b> walks
+      <b>PROVIDERS</b> and fetches each one, so the interval does not change but the work scales
+      with the list. At 30 minutes that is 288 requests a day rather than 96, and one slow provider
+      holds up the batch. A per-provider interval, or a concurrency limit, is not built.
+    </p>
+
+    <p class="why" style="margin-top:20px">
+      <b>3. Two windows cost six WebView2 processes.</b> <b>tauri.conf.json</b> declares
+      <b>main</b> and <b>tray</b>, and the second is a live hidden webview from startup whether or
+      not the popover is ever opened. Measured, that is ~403 MB of working set, of which 29 MB is
+      this app and 374 MB is the Edge runtime.
+    </p>
+
+    <p class="cost">
+      None of these three are regressions — the app runs correctly with the two providers it has.
+      They are what the layout and the process model do when the list grows, which is the reason
+      for drawing it with six.
+    </p>
+  </section>
 
 </div>
 </body>
