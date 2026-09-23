@@ -1,9 +1,19 @@
+import { useState } from 'react'
+
 import type { SnapshotRow } from '../lib/api'
 import { parseUtc, usd } from '../lib/format'
 import type { Tone } from './ui'
 
 const WIDTH = 1000
-const HEIGHT = 170
+/**
+ * Tall enough for the hover panel to sit inside it. The panel carries a date,
+ * one row per provider and a combined total, which is around 105px, so a 150px
+ * plot had nowhere to put it without clipping.
+ */
+const HEIGHT = 180
+/** Room for the y-axis on the left, and for the end-of-line values on the right. */
+const AXIS_WIDTH = 46
+const END_WIDTH = 54
 
 const strokeOf: Record<Tone, string> = {
   teal: 'var(--color-teal)',
@@ -12,17 +22,53 @@ const strokeOf: Record<Tone, string> = {
   muted: 'var(--color-ink-muted)',
 }
 
-const fillOf: Record<Tone, string> = {
-  teal: 'var(--color-teal-dim)',
-  copper: 'var(--color-copper-dim)',
-  amber: 'var(--color-amber-dim)',
-  muted: 'var(--color-line-strong)',
-}
-
 export interface Series {
   name: string
+  /** How the provider is written for a person. The id is not a label. */
+  displayName: string
   tone: Tone
   points: SnapshotRow[]
+}
+
+const TICK_TARGET = 4
+/** The window background, so labels sitting over a line stay readable. */
+const HALO = '0 0 5px var(--color-surface), 0 0 5px var(--color-surface)'
+
+/**
+ * Round numbers for the y-axis.
+ *
+ * An axis reading $10.00, $12.50, $15.00 looks like a machine leaked its
+ * internals. Snapping the step to 1, 2, 2.5, 5 or 10 times a power of ten keeps
+ * the labels on values a person would have picked.
+ */
+function niceTicks(lo: number, hi: number, count: number): number[] {
+  const raw = (hi - lo) / count
+  if (!Number.isFinite(raw) || raw <= 0) return [lo]
+
+  const magnitude = 10 ** Math.floor(Math.log10(raw))
+  const step =
+    [1, 2, 2.5, 5, 10].map((multiple) => multiple * magnitude).find((s) => s >= raw) ??
+    10 * magnitude
+
+  const ticks: number[] = []
+  for (let tick = Math.ceil(lo / step) * step; tick <= hi + 1e-9; tick += step) ticks.push(tick)
+  return ticks
+}
+
+/**
+ * Fit the axis to the readings rather than starting at zero.
+ *
+ * A balance moving between $6 and $12 drawn on a $0-$12 axis is a nearly flat
+ * line, which hides exactly the movement worth seeing. Padding holds the
+ * extremes off the edges. The cost is that a small wobble looks large, which is
+ * why the axis labels stay visible: they give the real size of the movement.
+ */
+function fittedRange(values: number[]): { lo: number; hi: number } {
+  const rawLo = Math.min(...values)
+  const rawHi = Math.max(...values)
+  // A flat series would otherwise divide by zero. Fall back to a visible band.
+  const pad = (rawHi - rawLo) * 0.16 || Math.max(rawHi * 0.08, 0.5)
+  return { lo: Math.max(0, rawLo - pad), hi: rawHi + pad }
 }
 
 /**
@@ -42,7 +88,55 @@ function balancePoints(series: Series[]): { series: Series; points: SnapshotRow[
   }))
 }
 
+const timeOf = (point: SnapshotRow) => parseUtc(point.recordedAt).getTime()
+
+/** The reading closest to `time`. Each provider is polled on its own clock. */
+function nearest(points: SnapshotRow[], time: number): SnapshotRow | undefined {
+  let best: SnapshotRow | undefined
+  let bestDistance = Number.POSITIVE_INFINITY
+
+  for (const point of points) {
+    const distance = Math.abs(timeOf(point) - time)
+    if (distance < bestDistance) {
+      bestDistance = distance
+      best = point
+    }
+  }
+
+  return best
+}
+
+const shortDate = (time: number) =>
+  new Date(time).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })
+
+/**
+ * Axis labels have to suit the span they describe.
+ *
+ * A day's worth of readings all fall on one date, so five date labels read the
+ * same and the axis says nothing. Under a couple of days the clock is the useful
+ * thing; past that, the date is.
+ */
+function axisLabel(time: number, spanMs: number): string {
+  const date = new Date(time)
+
+  if (spanMs < 2 * 86_400_000) {
+    return date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
+  }
+
+  return shortDate(time)
+}
+
+const readingTime = (value: string) =>
+  parseUtc(value).toLocaleString(undefined, {
+    day: 'numeric',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+
 export function BalanceChart({ series }: { series: Series[] }) {
+  const [hoverTime, setHoverTime] = useState<number | null>(null)
+
   const plotted = balancePoints(series)
   const excluded = series.reduce(
     (total, entry) => total + entry.points.filter((point) => point.basis === 'usage').length,
@@ -54,8 +148,11 @@ export function BalanceChart({ series }: { series: Series[] }) {
     <div className="flex flex-wrap items-center gap-4">
       {series.map((entry) => (
         <span key={entry.name} className="flex items-center gap-1.5">
-          <span className="h-[6px] w-[6px] rounded-full" style={{ background: strokeOf[entry.tone] }} />
-          <span className="label-sm text-ink-dim">{entry.name}</span>
+          <span
+            className="h-[6px] w-[6px] rounded-full"
+            style={{ background: strokeOf[entry.tone] }}
+          />
+          <span className="label-sm text-ink-dim">{entry.displayName}</span>
         </span>
       ))}
       {excluded > 0 ? (
@@ -87,13 +184,55 @@ export function BalanceChart({ series }: { series: Series[] }) {
     )
   }
 
-  const times = all.map((point) => parseUtc(point.recordedAt).getTime())
+  const times = all.map(timeOf)
   const tMin = Math.min(...times)
   const tMax = Math.max(...times)
-  const vMax = Math.max(1, ...all.map((point) => point.remaining))
+  const { lo, hi } = fittedRange(all.map((point) => point.remaining))
+  const ticks = niceTicks(lo, hi, TICK_TARGET)
 
-  const x = (time: number) => (tMax === tMin ? WIDTH / 2 : ((time - tMin) / (tMax - tMin)) * WIDTH)
-  const y = (value: number) => HEIGHT - 14 - (value / vMax) * (HEIGHT - 34)
+  // Time on the x-axis, not reading index: the poll interval is configurable and
+  // refreshes can be manual, so the gaps between readings are not uniform.
+  const x = (time: number) =>
+    tMax === tMin ? WIDTH / 2 : ((time - tMin) / (tMax - tMin)) * WIDTH
+  const y = (value: number) => HEIGHT - ((value - lo) / (hi - lo)) * HEIGHT
+
+  const leftOf = (time: number) => `${((x(time) / WIDTH) * 100).toFixed(3)}%`
+  const topOf = (value: number) => `${((y(value) / HEIGHT) * 100).toFixed(3)}%`
+
+  const pathOf = (points: SnapshotRow[]) =>
+    points
+      .map(
+        (point, index) =>
+          `${index === 0 ? 'M' : 'L'} ${x(timeOf(point)).toFixed(1)},${y(point.remaining).toFixed(1)}`,
+      )
+      .join(' ')
+
+  // Snap to a real reading rather than an arbitrary point on the line, so the
+  // crosshair always sits on something that was actually measured.
+  const anchor = hoverTime === null ? undefined : nearest(all, hoverTime)
+  const marks: { entry: (typeof plotted)[number]; point: SnapshotRow }[] = []
+  if (anchor) {
+    for (const entry of plotted) {
+      const point = nearest(entry.points, timeOf(anchor))
+      if (point) marks.push({ entry, point })
+    }
+  }
+
+  const tipLeft = anchor ? x(timeOf(anchor)) / WIDTH : 0
+  // Past this point the panel would run off the right edge, so it swaps sides.
+  const flip = tipLeft > 0.58
+  // Clamped, not free: the panel is tall relative to the plot, so letting it
+  // follow the cursor all the way to either edge would push it outside.
+  const tipTop = anchor
+    ? Math.min(68, Math.max(32, (y(anchor.remaining) / HEIGHT) * 100))
+    : 50
+
+  function onMove(event: React.MouseEvent<HTMLDivElement>) {
+    const box = event.currentTarget.getBoundingClientRect()
+    if (box.width === 0) return
+    const fraction = (event.clientX - box.left) / box.width
+    setHoverTime(tMin + fraction * (tMax - tMin))
+  }
 
   return (
     <div>
@@ -102,58 +241,164 @@ export function BalanceChart({ series }: { series: Series[] }) {
         {legend}
       </div>
 
-      <svg
-        viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
-        preserveAspectRatio="none"
-        className="mt-3 h-[170px] w-full"
-        role="img"
-        aria-label="Remaining balance over time"
-      >
-        <g stroke="var(--color-line)" strokeWidth="1">
-          <line x1="0" y1="35" x2={WIDTH} y2="35" />
-          <line x1="0" y1="78" x2={WIDTH} y2="78" />
-          <line x1="0" y1="121" x2={WIDTH} y2="121" />
-        </g>
+      <div className="mt-3 flex" style={{ height: HEIGHT }}>
+        {/* y-axis */}
+        <div className="relative shrink-0" style={{ width: AXIS_WIDTH }}>
+          {ticks.map((tick) => (
+            <span
+              key={tick}
+              className="num pointer-events-none absolute right-2 -translate-y-1/2 text-[10px] text-ink-muted"
+              style={{ top: topOf(tick) }}
+            >
+              {usd(tick)}
+            </span>
+          ))}
+        </div>
 
-        {plotted.map((entry) =>
-          entry.points.length < 2 ? null : (
-            <g key={entry.series.name}>
-              <path
-                d={`${line(entry.points, x, y)} L ${x(parseUtc(entry.points[entry.points.length - 1]!.recordedAt).getTime())},${HEIGHT} L ${x(parseUtc(entry.points[0]!.recordedAt).getTime())},${HEIGHT} Z`}
-                fill={fillOf[entry.series.tone]}
-                opacity="0.55"
-              />
-              <path
-                d={line(entry.points, x, y)}
-                fill="none"
-                stroke={strokeOf[entry.series.tone]}
-                strokeWidth="2"
+        <div
+          className="relative z-10 flex-1 cursor-crosshair select-none"
+          onMouseMove={onMove}
+          onMouseLeave={() => setHoverTime(null)}
+        >
+          <svg
+            viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
+            preserveAspectRatio="none"
+            className="absolute inset-0 h-full w-full"
+            role="img"
+            aria-label="Remaining balance over time"
+          >
+            {/* Gridlines first, but nothing is filled over them any more. */}
+            {ticks.map((tick) => (
+              <line
+                key={tick}
+                x1="0"
+                y1={y(tick)}
+                x2={WIDTH}
+                y2={y(tick)}
+                stroke="var(--color-line)"
+                strokeWidth="1"
                 vectorEffect="non-scaling-stroke"
               />
-            </g>
-          ),
-        )}
-      </svg>
+            ))}
 
-      <div className="num mt-2.5 flex items-center justify-between text-[10px] text-ink-muted">
-        <span>{new Date(tMin).toLocaleString()}</span>
-        <span>peak {usd(vMax)}</span>
-        <span>{new Date(tMax).toLocaleString()}</span>
+            {plotted.map((entry) =>
+              entry.points.length < 2 ? null : (
+                <path
+                  key={entry.series.name}
+                  d={pathOf(entry.points)}
+                  fill="none"
+                  stroke={strokeOf[entry.series.tone]}
+                  strokeWidth="2"
+                  strokeLinejoin="round"
+                  strokeLinecap="round"
+                  vectorEffect="non-scaling-stroke"
+                />
+              ),
+            )}
+          </svg>
+
+          {/* Current value at the end of each line, so the legend does not have
+              to be matched against colours to read a number. */}
+          {plotted.map((entry) => {
+            const last = entry.points[entry.points.length - 1]
+            if (!last || entry.points.length < 2) return null
+
+            return (
+              <span key={entry.series.name}>
+                <span
+                  className="pointer-events-none absolute h-[7px] w-[7px] -translate-x-1/2 -translate-y-1/2 rounded-full"
+                  style={{
+                    left: leftOf(timeOf(last)),
+                    top: topOf(last.remaining),
+                    background: strokeOf[entry.series.tone],
+                    boxShadow: '0 0 0 3px var(--color-surface)',
+                  }}
+                />
+                <span
+                  className="num pointer-events-none absolute -translate-y-1/2 whitespace-nowrap pl-[11px] text-[10.5px]"
+                  style={{
+                    left: leftOf(timeOf(last)),
+                    top: topOf(last.remaining),
+                    color: strokeOf[entry.series.tone],
+                    textShadow: HALO,
+                  }}
+                >
+                  {usd(last.remaining)}
+                </span>
+              </span>
+            )
+          })}
+
+          {anchor ? (
+            <>
+              <span
+                className="pointer-events-none absolute top-0 bottom-0 w-px bg-line-strong"
+                style={{ left: leftOf(timeOf(anchor)) }}
+              />
+
+              {marks.map(({ entry, point }) => (
+                <span
+                  key={entry.series.name}
+                  className="pointer-events-none absolute h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full"
+                  style={{
+                    left: leftOf(timeOf(point)),
+                    top: topOf(point.remaining),
+                    background: strokeOf[entry.series.tone],
+                    boxShadow: '0 0 0 3px var(--color-surface)',
+                  }}
+                />
+              ))}
+
+              <div
+                className="pointer-events-none absolute z-10 min-w-[136px] rounded-[10px] border border-line-strong bg-panel px-2.5 py-2 shadow-[0_10px_26px_rgba(0,0,0,0.55)]"
+                style={{
+                  left: `${(tipLeft * 100).toFixed(3)}%`,
+                  top: `${tipTop.toFixed(3)}%`,
+                  transform: flip
+                    ? 'translate(calc(-100% - 14px), -50%)'
+                    : 'translate(14px, -50%)',
+                }}
+              >
+                <div className="num text-[10px] text-ink-muted">
+                  {readingTime(anchor.recordedAt)}
+                </div>
+                {marks.map(({ entry, point }) => (
+                  <div key={entry.series.name} className="mt-1.5 flex items-center gap-2">
+                    <span
+                      className="h-1.5 w-1.5 shrink-0 rounded-full"
+                      style={{ background: strokeOf[entry.series.tone] }}
+                    />
+                    <span className="text-[10.5px] text-ink-dim">{entry.series.displayName}</span>
+                    <span
+                      className="num ml-auto pl-3 text-[11.5px]"
+                      style={{ color: strokeOf[entry.series.tone] }}
+                    >
+                      {usd(point.remaining)}
+                    </span>
+                  </div>
+                ))}
+                {marks.length > 1 ? (
+                  <div className="num mt-1.5 border-t border-line pt-1.5 text-[10px] text-ink-muted">
+                    {usd(marks.reduce((total, mark) => total + mark.point.remaining, 0))} combined
+                  </div>
+                ) : null}
+              </div>
+            </>
+          ) : null}
+        </div>
+
+        {/* Gutter the end-of-line values overflow into. */}
+        <div className="shrink-0" style={{ width: END_WIDTH }} />
+      </div>
+
+      <div
+        className="num mt-2.5 flex justify-between text-[10px] text-ink-muted"
+        style={{ paddingLeft: AXIS_WIDTH, paddingRight: END_WIDTH }}
+      >
+        {[0, 0.25, 0.5, 0.75, 1].map((fraction) => (
+          <span key={fraction}>{axisLabel(tMin + fraction * (tMax - tMin), tMax - tMin)}</span>
+        ))}
       </div>
     </div>
   )
-}
-
-function line(
-  points: SnapshotRow[],
-  x: (time: number) => number,
-  y: (value: number) => number,
-): string {
-  return points
-    .map((point, index) => {
-      const px = x(parseUtc(point.recordedAt).getTime())
-      const py = y(point.remaining)
-      return `${index === 0 ? 'M' : 'L'} ${px.toFixed(1)},${py.toFixed(1)}`
-    })
-    .join(' ')
 }

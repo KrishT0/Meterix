@@ -230,6 +230,26 @@ each keeping a constant. That duplication is gone: there is exactly one literal
 left (`DEFAULT_LOW_BALANCE_THRESHOLD` in the core) and no threshold in TypeScript
 at all.
 
+**The chart axis is fitted to the readings, not to zero.** A balance moving
+between $6 and $12 drawn on a $0-$12 axis is a nearly flat line, which hides
+exactly the movement worth looking at. The axis is padded to the data and
+labelled with round numbers so the real size of a movement stays readable. The
+trade-off is that a small wobble looks large, and the axis labels are the thing
+that keeps that honest, which is why they stay on screen.
+
+**Nothing is filled.** The chart used to fill each series down to the bottom of
+the plot and draw its gridlines underneath, so past a handful of readings it was
+a solid block of colour with its own gridlines hidden behind it. Lines only.
+
+**Hover snaps to a reading that was actually stored**, not to an arbitrary spot
+on the line, and the panel carries a date, one row per provider and a combined
+total. Because providers are polled on their own clocks, "nearest reading" is
+resolved per provider rather than assuming one shared timestamp.
+
+**Axis labels follow the span they describe.** A day of readings all share one
+date, so five date labels read identically and the axis tells you nothing. Under
+two days the labels are times instead.
+
 **OpenRouter balance precedence is account credits, then key cap, then usage.**
 Credits are the real balance. A key cap is not the account balance, but it is
 still money the key can spend, so it outranks spend-so-far. Usage is last and
@@ -317,11 +337,6 @@ can actually spend after reservations.
   header shows a single number only when every provider agrees on one, and says
   "thresholds per provider" otherwise, because printing one of two different
   numbers would be a quiet lie.
-- The chart fills each series from its line down to the bottom of the plot, and
-  draws the gridlines underneath the fills. Once more than a handful of readings
-  exist the fills cover the whole plot and the gridlines with it, so the chart
-  reads as a wall of colour rather than a trend. Filling from zero is the wrong
-  choice for balances that never approach zero. Not fixed.
 - Nothing records *which* key produced a snapshot, only which provider. Swapping
   an account mid-history splices two accounts into one trend line.
 - "Remove a provider" removes the keychain entry but not an environment

@@ -184,6 +184,7 @@ export default function App() {
   const selected = overview.find((row) => row.name === active)
   const series: Series[] = shown.map((row, index) => ({
     name: row.name,
+    displayName: row.displayName,
     tone: index === 0 ? 'teal' : 'copper',
     points: readings[row.name] ?? [],
   }))
