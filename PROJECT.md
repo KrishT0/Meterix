@@ -82,6 +82,39 @@ The dashboard starts by reading whatever is already in the database, then
 refreshes from the providers if any key is configured. Keys are added in the
 app, and stored in the OS keychain rather than the database.
 
+## Footprint
+
+Measured here against a release build with two providers configured, about ninety
+seconds after launch. Re-measure rather than trusting these after a change to the
+UI or the window set-up.
+
+| what | measured |
+|---|---|
+| `meterix.exe`, release | 15.78 MB, of which the frontend is 0.58 MB, embedded |
+| the Rust process | 29.2 MB working set |
+| WebView2, six processes | 373.8 MB working set |
+| **memory, total** | **~403 MB**, flat across 90 seconds |
+| CPU while idle | 0.30–0.44% of one core |
+| CPU at launch and first refresh | peak 25.7% of one core, idle again by ~3s |
+| CPU for launching plus a full refresh | 0.20 CPU-seconds |
+| database | 32 KB holding 80 readings, so ~100 bytes a reading |
+
+At the default 30-minute poll that works out at roughly 7 CPU-seconds a day and
+3–4 MB of database a year. Nearly all the memory is WebView2 — the Edge runtime,
+not anything this repo builds. The app's own process is under 30 MB.
+
+Six WebView2 processes for a tray app is not a mistake. `tauri.conf.json` declares
+two windows, `main` and `tray`, and the second is a live webview from startup even
+though it is hidden and most sessions never open it. Creating it on the first tray
+click would drop a renderer for a slower first click. Its share has not been
+measured, so no figure is claimed for it.
+
+The installer has never been built here. The bundler downloads NSIS 3.11 and that
+fetch fails in this environment, so `targets: "all"` has never produced anything.
+The payload compresses to 4.40 MB with LZMA, which is the algorithm NSIS uses, so
+the installer should land near 4.5–5 MB: a measured payload plus an unmeasured
+stub. That is an estimate, and the one number in this section that is.
+
 ## Commands
 
 ```
@@ -495,4 +528,12 @@ can actually spend after reservations.
   will fail. Cross-platform is not free on that leg.
 - Schema migrations are `PRAGMA table_info` plus `ALTER TABLE`. Fine for a
   handful. Move to a `PRAGMA user_version` ladder once there are three or more.
+- Installers cannot be built in this environment. `npm run tauri build` gets
+  through the Rust build and the frontend bundling, then fails downloading NSIS
+  3.11 with `timeout: global`, and nothing is produced. Needs a network where
+  github.com is reachable, or a proxy in `HTTPS_PROXY`. The config is fine; this
+  is the machine.
+- The tray popover's webview is built at startup and kept alive whether or not it
+  is ever opened, so every session carries a second renderer. Lazy creation would
+  fix it. Cost not measured.
 - The bundled CSP is off (`csp: null`). Worth tightening before packaging.
