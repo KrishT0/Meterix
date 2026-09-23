@@ -7,45 +7,26 @@ export type Tone = 'teal' | 'amber' | 'copper' | 'muted'
 
 interface ToneStyle {
   dot: string
-  card: string
   pill: string
-  text: string
-  iconBox: string
 }
 
 /**
+ * Status, and only status.
+ *
+ * Which provider something belongs to is a separate axis — see lib/palette.ts —
+ * so nothing here identifies a provider, and nothing there reports a problem.
+ * The card tint and the icon box used to live here, which is what made the two
+ * axes impossible to keep apart: the tint was the health signal, so it could not
+ * also say which provider a panel belonged to.
+ *
  * Every class name is spelled out in full because Tailwind scans source text;
  * a built-up name like `bg-${tone}` would never make it into the stylesheet.
  */
 export const tones: Record<Tone, ToneStyle> = {
-  teal: {
-    dot: 'bg-teal',
-    card: 'border-teal-dim/40 bg-teal-tint',
-    pill: 'border-teal-dim/50 text-teal',
-    text: 'text-teal',
-    iconBox: 'bg-teal',
-  },
-  amber: {
-    dot: 'bg-amber',
-    card: 'border-amber-line bg-amber-tint',
-    pill: 'border-amber-line text-amber-dim',
-    text: 'text-amber',
-    iconBox: 'bg-amber',
-  },
-  copper: {
-    dot: 'bg-copper',
-    card: 'border-copper-dim/40 bg-copper-tint',
-    pill: 'border-copper-dim/40 text-copper',
-    text: 'text-copper',
-    iconBox: 'bg-copper',
-  },
-  muted: {
-    dot: 'bg-ink-muted',
-    card: 'border-line bg-panel',
-    pill: 'border-line-strong text-ink-dim',
-    text: 'text-ink-muted',
-    iconBox: 'bg-line-strong',
-  },
+  teal: { dot: 'bg-teal', pill: 'border-teal-dim/50 text-teal' },
+  amber: { dot: 'bg-amber', pill: 'border-amber-line text-amber-dim' },
+  copper: { dot: 'bg-copper', pill: 'border-copper-dim/40 text-copper' },
+  muted: { dot: 'bg-ink-muted', pill: 'border-line-strong text-ink-dim' },
 }
 
 export type Health = 'ok' | 'low' | 'error' | 'unknown'

@@ -2,7 +2,6 @@ import { useState } from 'react'
 
 import type { SnapshotRow } from '../lib/api'
 import { parseUtc, usd } from '../lib/format'
-import type { Tone } from './ui'
 
 const WIDTH = 1000
 /**
@@ -15,18 +14,19 @@ const HEIGHT = 180
 const AXIS_WIDTH = 46
 const END_WIDTH = 54
 
-const strokeOf: Record<Tone, string> = {
-  teal: 'var(--color-teal)',
-  copper: 'var(--color-copper)',
-  amber: 'var(--color-amber)',
-  muted: 'var(--color-ink-muted)',
-}
-
 export interface Series {
   name: string
   /** How the provider is written for a person. The id is not a label. */
   displayName: string
-  tone: Tone
+  /**
+   * The CSS custom property carrying this provider's identity colour, set by the
+   * caller so the line matches that provider's card and its row in the table.
+   *
+   * Health is deliberately not encoded here. It used to be, with the first
+   * series teal and every other one copper, which meant five providers drew four
+   * identical copper lines — and copper already means "a key was rejected".
+   */
+  hue: string
   points: SnapshotRow[]
   /**
    * The credential currently configured for this provider, so readings from a
@@ -180,7 +180,7 @@ export function BalanceChart({ series }: { series: Series[] }) {
         <span key={entry.name} className="flex items-center gap-1.5">
           <span
             className="h-[6px] w-[6px] rounded-full"
-            style={{ background: strokeOf[entry.tone] }}
+            style={{ background: entry.hue }}
           />
           <span className="label-sm text-ink-dim">{entry.displayName}</span>
         </span>
@@ -323,7 +323,7 @@ export function BalanceChart({ series }: { series: Series[] }) {
                   key={entry.series.name}
                   d={pathOf(entry.points)}
                   fill="none"
-                  stroke={strokeOf[entry.series.tone]}
+                  stroke={entry.series.hue}
                   strokeWidth="2"
                   strokeLinejoin="round"
                   strokeLinecap="round"
@@ -346,7 +346,7 @@ export function BalanceChart({ series }: { series: Series[] }) {
                   style={{
                     left: leftOf(timeOf(last)),
                     top: topOf(last.remaining),
-                    background: strokeOf[entry.series.tone],
+                    background: entry.series.hue,
                     boxShadow: '0 0 0 3px var(--color-surface)',
                   }}
                 />
@@ -355,7 +355,7 @@ export function BalanceChart({ series }: { series: Series[] }) {
                   style={{
                     left: leftOf(timeOf(last)),
                     top: topOf(last.remaining),
-                    color: strokeOf[entry.series.tone],
+                    color: entry.series.hue,
                     textShadow: HALO,
                   }}
                 >
@@ -379,7 +379,7 @@ export function BalanceChart({ series }: { series: Series[] }) {
                   style={{
                     left: leftOf(timeOf(point)),
                     top: topOf(point.remaining),
-                    background: strokeOf[entry.series.tone],
+                    background: entry.series.hue,
                     boxShadow: '0 0 0 3px var(--color-surface)',
                   }}
                 />
@@ -402,12 +402,12 @@ export function BalanceChart({ series }: { series: Series[] }) {
                   <div key={entry.series.name} className="mt-1.5 flex items-center gap-2">
                     <span
                       className="h-1.5 w-1.5 shrink-0 rounded-full"
-                      style={{ background: strokeOf[entry.series.tone] }}
+                      style={{ background: entry.series.hue }}
                     />
                     <span className="text-[10.5px] text-ink-dim">{entry.series.displayName}</span>
                     <span
                       className="num ml-auto pl-3 text-[11.5px]"
-                      style={{ color: strokeOf[entry.series.tone] }}
+                      style={{ color: entry.series.hue }}
                     >
                       {usd(point.remaining)}
                     </span>

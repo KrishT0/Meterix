@@ -1,15 +1,51 @@
+import type { CSSProperties } from 'react'
+
 import type { ProviderOverview, RefreshOutcome } from '../lib/api'
 import { basisLabel, errorHeadline, relativeTime, usd } from '../lib/format'
-import { StatusDot, healthOf, toneOf, tones } from './ui'
+import { healthOf, tones } from './ui'
 
 const COLUMNS = 'grid-cols-[1.5fr_1.2fr_0.9fr_0.9fr_0.9fr]'
+
+/**
+ * Status, in the one place on a row where amber and copper are allowed.
+ *
+ * It sits beside the name rather than replacing the timestamp, so a low provider
+ * still shows when it was last read — the chip answers "is this fine" and the
+ * time answers "how current is that".
+ */
+function StatusChip({
+  health,
+  outcome,
+}: {
+  health: ReturnType<typeof healthOf>
+  outcome: RefreshOutcome | undefined
+}) {
+  if (health === 'error') {
+    return (
+      <span className={`label-sm rounded-full border px-1.5 py-0.5 ${tones.copper.pill} bg-copper/10`}>
+        {errorHeadline(outcome?.errorKind)}
+      </span>
+    )
+  }
+  if (health === 'low') {
+    return (
+      <span className={`label-sm rounded-full border px-1.5 py-0.5 ${tones.amber.pill} bg-amber/10`}>
+        Under
+      </span>
+    )
+  }
+  return null
+}
 
 export function ProviderTable({
   providers,
   outcomes,
+  hueOf,
 }: {
   providers: ProviderOverview[]
   outcomes: Record<string, RefreshOutcome>
+  /** The CSS custom property carrying each provider's identity colour. */
+  hueOf: (name: string) => string
 }) {
   if (providers.length === 0) return null
 
@@ -26,26 +62,28 @@ export function ProviderTable({
       {providers.map((provider) => {
         const outcome = outcomes[provider.name]
         const health = healthOf(provider, outcome)
-        const tone = toneOf(health)
         const failed = outcome !== undefined && !outcome.ok
 
         return (
           <div
             key={provider.name}
             className={`grid ${COLUMNS} items-center gap-3 border-b border-line/60 py-2 last:border-b-0`}
+            style={{ '--hue': hueOf(provider.name) } as CSSProperties}
           >
             <span className="flex items-center gap-2">
-              <StatusDot tone={tone} />
+              {/* Identity, so a row matches its card and its line on the chart. */}
+              <span className="hue-bar h-[7px] w-[7px] shrink-0 rounded-full" />
               <span className="num text-[12px]">{provider.displayName}</span>
+              <StatusChip health={health} outcome={outcome} />
             </span>
 
             <span
-              className={`label-sm ${provider.basis === null ? 'text-ink-muted' : provider.basis === 'usage' ? 'text-ink-dim' : 'text-teal-dim'}`}
+              className={`label-sm ${provider.basis === null ? 'text-ink-muted' : provider.basis === 'usage' ? 'text-ink-dim' : 'text-ink-dim'}`}
             >
               {failed ? '—' : (provider.basis ?? '—')}
             </span>
 
-            <span className={`num text-right text-[12px] ${tone === 'muted' ? 'text-ink-muted' : tones[tone].text}`}>
+            <span className="num text-right text-[12px]">
               {provider.balance === null ? '—' : usd(provider.balance).slice(1)}
             </span>
 
@@ -63,10 +101,10 @@ export function ProviderTable({
             </span>
 
             <span
-              className={`num text-right text-[12px] ${failed ? tones.copper.text : 'text-ink-muted'}`}
+              className={`num text-right text-[12px] text-ink-muted`}
               title={failed ? (outcome.errorMessage ?? undefined) : basisLabel(provider.basis)}
             >
-              {failed ? errorHeadline(outcome.errorKind) : relativeTime(provider.recordedAt)}
+              {relativeTime(provider.recordedAt)}
             </span>
           </div>
         )

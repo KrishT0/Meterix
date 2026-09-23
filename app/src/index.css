@@ -13,6 +13,10 @@
   --color-inset: #1a1a19;
   --color-line: #2e2e2c;
   --color-line-strong: #3a3a37;
+  /* The card surface: the backdrop lifted one step, with no colour of its own.
+     A provider's hue is mixed into THIS to tint its card, which is what keeps
+     six tints from reading as six loud fill colours. */
+  --color-card-raised: #1f1f1e;
 
   --color-ink: #e9e7e2;
   --color-ink-dim: #a8a69e;
@@ -21,15 +25,44 @@
   --color-amber: #e0a64b;
   --color-amber-dim: #c8a24c;
   --color-amber-line: #6a5220;
-  --color-amber-tint: #2e2418;
 
   --color-teal: #4db6ac;
   --color-teal-dim: #2f7d6e;
-  --color-teal-tint: #17332c;
 
+  /* The only tint left. The dashboard's error banner and the settings problem
+     banner still use it; the amber and teal tints went with the card tints they
+     existed for. */
   --color-copper: #d08a5c;
   --color-copper-dim: #c08159;
   --color-copper-tint: #33241a;
+}
+
+/* Ten shades for identifying a provider, and nothing else. Amber, orange and
+   copper are absent on purpose: those mean "under your threshold" and "a key
+   was rejected", and a provider whose line happened to be amber would be
+   unreadable. Hues were spaced through the arc amber and copper do not own, then
+   lightness tuned per colour. Measured in CIELAB against the backdrop: closest
+   pair dE 15.3, nearest to amber 43.5, luminance 148-191.
+
+   Ten shades, an untouched amber arc and a comfortable tonal band cannot all be
+   had at once -- narrowing the arc to buy separation pulls a chartreuse to
+   dE 30.6 from amber. This is weighted toward keeping status unambiguous.
+
+   `static` is load-bearing. These are read through a computed name,
+   `var(--color-hue-N)`, built in lib/palette.ts, and Tailwind only keeps theme
+   variables it can see referenced. Without it all ten are dropped from the
+   stylesheet and every card silently loses its tint while still building. */
+@theme static {
+  --color-hue-1: #a9d05c;
+  --color-hue-2: #77d161;
+  --color-hue-3: #6dd588;
+  --color-hue-4: #5acfb0;
+  --color-hue-5: #7bc6d9;
+  --color-hue-6: #9eb5e3;
+  --color-hue-7: #a59ce2;
+  --color-hue-8: #b782db;
+  --color-hue-9: #d878d2;
+  --color-hue-10: #db83ac;
 }
 
 /* Tailwind v4 dropped the browser's default `cursor: pointer` on buttons, so
@@ -65,6 +98,25 @@
 @utility num {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
+}
+
+/* A provider's identity, derived from its one colour instead of hand-picked per
+   state. The tint is the raised card surface nudged toward the hue, so the card
+   reads as a lighter, colour-tinged panel rather than a filled swatch; the
+   border is the same hue over the divider line. Nothing here encodes health --
+   that is the status label's job, and keeping them apart is what lets six cards
+   be told apart without the tint having to double as a warning. */
+@utility hue-card {
+  background: color-mix(in oklab, var(--hue) 7%, var(--color-card-raised));
+  border-color: color-mix(in oklab, var(--hue) 26%, var(--color-line));
+}
+
+@utility hue-bar {
+  background: var(--hue);
+}
+
+@utility hue-ink {
+  color: color-mix(in oklab, var(--hue) 88%, white);
 }
 
 html,

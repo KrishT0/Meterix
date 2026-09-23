@@ -477,6 +477,33 @@ that it still wrote readings: 2 snapshots means the bundle executed, React
 mounted and IPC reached Rust. That covers `script-src` and `connect-src`. It does
 not cover the inline styles, which no automated check here can see.
 
+**Identity and status are separate colour axes.** Ten shades say which provider
+something *is*; amber and copper say something is *wrong*. Before this, one
+colour did both: the card tint was the health signal, so it could not also tell
+one panel from another, and six providers produced six near-identical cards while
+the chart drew one teal line and four identical copper ones.
+
+Hue now drives the line, the dot, the meter, the basis label and the card's tint
+and border, all derived from a single `--hue` custom property by
+`color-mix(in oklab, var(--hue) 7%, --color-card-raised)` — so a provider's card
+is the raised surface nudged toward its colour rather than a saturated fill, and
+adding a provider means adding a hue and nothing else. Health moved to a status
+label, absent when there is nothing to report, because six labels all reading
+"fine" are six things to read past.
+
+Amber, orange and copper are kept out of the ten deliberately: a provider whose
+line happened to be amber would be unreadable. The set was searched rather than
+picked by eye and measured in CIELAB — closest pair dE 15.3, nearest to amber
+43.5, luminance 148-191. That is a compromise, not a solution: ten shades, an
+untouched amber arc and a comfortable tonal band cannot all hold at once, and
+narrowing the arc to buy separation pulls a chartreuse to dE 30.6 from amber.
+
+**The ten are declared `@theme static`.** Tailwind only keeps theme variables it
+can see referenced, and these are read through a name built at runtime in
+`lib/palette.ts` (`var(--color-hue-N)`). Without `static` all ten are dropped from
+the stylesheet while the build still succeeds, and every card silently loses its
+tint.
+
 ## Provider notes
 
 Checked against the live APIs rather than the documentation, because the two

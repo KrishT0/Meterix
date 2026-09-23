@@ -1,19 +1,16 @@
+import type { CSSProperties } from 'react'
+
 import type { ProviderOverview, RefreshOutcome, SnapshotRow } from '../lib/api'
 import { basisLabel, errorHeadline, relativeTime, usd } from '../lib/format'
-import {
-  CheckIcon,
-  CrossIcon,
-  Label,
-  Pill,
-  StatusDot,
-  WarningIcon,
-  healthOf,
-  toneOf,
-  tones,
-} from './ui'
+import { CheckIcon, CrossIcon, Label, Pill, WarningIcon, healthOf, tones } from './ui'
 
 const TICKS = 12
 
+/**
+ * What is known about the credential, which is a different question from whether
+ * the balance is healthy. A working key that is nearly empty still reads
+ * "Api key" here, and gets its warning from the status line below.
+ */
 function pillText(
   provider: ProviderOverview,
   outcome: RefreshOutcome | undefined,
@@ -34,11 +31,13 @@ function pillText(
 }
 
 /**
- * One tick per stored reading, oldest first. A tick is teal when the reading
- * was a real balance and grey when it was only a usage figure, so a run of
- * grey is visible evidence that no balance is available for this provider.
+ * One tick per stored reading, oldest first, in the provider's own colour so the
+ * card is identifiable at a glance. Grey means the reading held a usage figure
+ * rather than a balance, so a run of grey is evidence that no balance is
+ * available — which is a fact about the data, not about health, so it stays
+ * outside the status colour.
  */
-function Ticks({ readings, tone }: { readings: SnapshotRow[]; tone: string }) {
+function Ticks({ readings }: { readings: SnapshotRow[] }) {
   const recent = readings.slice(0, TICKS).reverse()
   const padding = Math.max(0, TICKS - recent.length)
 
@@ -50,45 +49,90 @@ function Ticks({ readings, tone }: { readings: SnapshotRow[]; tone: string }) {
       {recent.map((reading, index) => (
         <span
           key={`${reading.recordedAt}-${index}`}
-          className={`h-1.5 w-[7px] rounded-[2px] ${reading.basis === 'usage' ? 'bg-ink-muted' : tone}`}
+          className={`h-1.5 w-[7px] rounded-[2px] ${
+            reading.basis === 'usage' ? 'bg-ink-muted' : 'hue-bar'
+          }`}
         />
       ))}
     </div>
   )
 }
 
+/**
+ * The status line, and the only place amber or copper appear on a card.
+ *
+ * Nothing is rendered for a healthy provider. Six cards each announcing "fine"
+ * would be six pieces of noise to read past; the absence is the signal, and
+ * anything that does appear is worth looking at.
+ */
+function StatusLabel({
+  health,
+  threshold,
+  outcome,
+}: {
+  health: ReturnType<typeof healthOf>
+  threshold: number
+  outcome: RefreshOutcome | undefined
+}) {
+  if (health === 'error') {
+    return (
+      <span
+        className={`label-sm mt-2 inline-block rounded-full border px-2 py-0.5 ${tones.copper.pill} bg-copper/10`}
+      >
+        {errorHeadline(outcome?.errorKind)}
+      </span>
+    )
+  }
+
+  if (health === 'low') {
+    return (
+      <span
+        className={`label-sm mt-2 inline-block rounded-full border px-2 py-0.5 ${tones.amber.pill} bg-amber/10`}
+      >
+        Under your {usd(threshold).slice(1)} threshold
+      </span>
+    )
+  }
+
+  return null
+}
+
 export function ProviderCard({
   provider,
   outcome,
   readings,
+  hue,
   onRemove,
   busy,
 }: {
   provider: ProviderOverview
   outcome: RefreshOutcome | undefined
   readings: SnapshotRow[]
+  /** The CSS custom property carrying this provider's identity colour. */
+  hue: string
   onRemove: () => void
   busy: boolean
 }) {
   const health = healthOf(provider, outcome)
-  const tone = toneOf(health)
-  const style = tones[tone]
   const pill = pillText(provider, outcome)
 
+  // Shape carries the status, colour carries the provider. A cross and a warning
+  // triangle are distinguishable without relying on hue, which is what lets the
+  // box stay identity-coloured instead of turning amber or copper.
   const Icon = health === 'ok' ? CheckIcon : health === 'error' ? CrossIcon : WarningIcon
 
   return (
-    <div className={`rounded-[10px] border p-3.5 ${style.card}`}>
+    <div className="hue-card rounded-[10px] border p-3.5" style={{ '--hue': hue } as CSSProperties}>
       <div className="flex items-center gap-2">
         <span
           className={`flex h-[16px] w-[16px] items-center justify-center rounded-[4px] ${
-            health === 'unknown' ? 'border border-line-strong bg-inset' : style.iconBox
+            health === 'unknown' ? 'border border-line-strong bg-inset' : 'hue-bar'
           }`}
         >
           <Icon className={health === 'unknown' ? 'text-ink-muted' : 'text-[#0F1F1C]'} />
         </span>
 
-        <span className="text-[13px] font-medium">{provider.displayName}</span>
+        <span className="font-sans text-[13px] font-medium">{provider.displayName}</span>
 
         <button
           type="button"
@@ -120,18 +164,14 @@ export function ProviderCard({
           <Label className="text-ink-muted">
             {provider.basis === 'usage' ? 'Spend so far' : 'Remaining'}
           </Label>
-          <div
-            className={`num mt-0.5 text-[18px] leading-none font-semibold ${
-              tone === 'muted' ? 'text-ink-muted' : style.text
-            }`}
-          >
+          <div className="num mt-0.5 text-[18px] leading-none font-semibold">
             {provider.balance === null ? '——' : usd(provider.balance).slice(1)}
           </div>
         </div>
-        <Ticks readings={readings} tone={style.dot} />
+        <Ticks readings={readings} />
       </div>
 
-      <div className={`label-sm mt-2 ${tone === 'muted' ? 'text-ink-muted' : style.text}`}>
+      <div className={`label-sm mt-2 ${provider.basis === null ? 'text-ink-muted' : 'hue-ink'}`}>
         {basisLabel(provider.basis)}
       </div>
 
@@ -151,16 +191,7 @@ export function ProviderCard({
         )}
       </div>
 
-      {outcome && !outcome.ok ? null : (
-        <div className="mt-1.5 flex items-center gap-1.5">
-          <StatusDot tone={tone} />
-          <span className="label-sm text-ink-muted">
-            {provider.basis === 'account_credits' && provider.accountCredits !== null
-              ? `credits ${usd(provider.accountCredits).slice(1)}`
-              : 'no account balance reported'}
-          </span>
-        </div>
-      )}
+      <StatusLabel health={health} threshold={provider.threshold} outcome={outcome} />
     </div>
   )
 }

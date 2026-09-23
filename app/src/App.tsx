@@ -19,6 +19,7 @@ import {
 import type { ProviderOverview, RefreshOutcome, SaveKeyOutcome, SnapshotRow } from './lib/api'
 import * as api from './lib/api'
 import { amount, daySeconds, parseUtc, relativeTime, usd } from './lib/format'
+import { hueAt } from './lib/palette'
 
 /** Enough for a month of half-hourly polls, which is what the chart wants. */
 const HISTORY_LIMIT = 1500
@@ -193,10 +194,16 @@ export default function App() {
   })
 
   const selected = overview.find((row) => row.name === active)
-  const series: Series[] = shown.map((row, index) => ({
+
+  // One colour per provider, taken from its position in the full list rather
+  // than in the shown one, so removing a provider does not recolour the rest.
+  // Identity only — see lib/palette.ts for why amber and copper are not in it.
+  const hueOf = (name: string) => hueAt(Math.max(0, supported.indexOf(name)))
+
+  const series: Series[] = shown.map((row) => ({
     name: row.name,
     displayName: row.displayName,
-    tone: index === 0 ? 'teal' : 'copper',
+    hue: hueOf(row.name),
     points: readings[row.name] ?? [],
     keyFingerprint: row.keyFingerprint,
   }))
@@ -503,6 +510,7 @@ export default function App() {
                     provider={row}
                     outcome={outcomes[row.name]}
                     readings={readings[row.name] ?? []}
+                    hue={hueOf(row.name)}
                     onRemove={() => setRemoving(row)}
                     busy={busy}
                   />
@@ -517,7 +525,7 @@ export default function App() {
 
             {/* zone: table */}
             <div className="mt-10">
-              <ProviderTable providers={shown} outcomes={outcomes} />
+              <ProviderTable providers={shown} outcomes={outcomes} hueOf={hueOf} />
             </div>
 
             {/* zone: note */}

@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useState } from 'react'
+import type { CSSProperties } from 'react'
 import { listen } from '@tauri-apps/api/event'
 import { invoke } from '@tauri-apps/api/core'
 
-import { Button, StatusDot, healthOf } from './components/ui'
+import { Button, StatusDot, healthOf, tones } from './components/ui'
 import type { ProviderOverview, RefreshOutcome } from './lib/api'
 import * as api from './lib/api'
 import { relativeTime, usd } from './lib/format'
+import { hueAt } from './lib/palette'
 
 /**
  * The tray popover: one row per provider, and nothing else.
@@ -63,6 +65,9 @@ export function TrayPopover() {
   }, [load])
 
   const shown = overview.filter((row) => row.configured)
+  // Taken from the full list, so removing one provider does not recolour another.
+  const hueOf = (name: string) =>
+    hueAt(Math.max(0, overview.map((row) => row.name).indexOf(name)))
   const balances = shown.filter((row) => row.balance !== null && row.basis !== 'usage')
   const total = balances.reduce((sum, row) => sum + (row.balance ?? 0), 0)
 
@@ -105,23 +110,30 @@ export function TrayPopover() {
           shown.map((row) => {
             const outcome = outcomes[row.name]
             const failed = outcome !== undefined && !outcome.ok
+            const health = healthOf(row, outcome)
 
             return (
-              <div key={row.name} className="flex items-center gap-2.5 px-3.5 py-2">
-                <StatusDot tone={failed ? 'copper' : 'teal'} />
+              <div
+                key={row.name}
+                className="flex items-center gap-2.5 px-3.5 py-2"
+                style={{ '--hue': hueOf(row.name) } as CSSProperties}
+              >
+                {/* Identity, so the row matches the card and the line. This used
+                    to be `failed ? copper : teal`, which showed a provider that
+                    was merely under its threshold as healthy. */}
+                <span className="hue-bar h-[7px] w-[7px] shrink-0 rounded-full" />
                 <span className={`num text-[12px] ${failed ? 'text-ink-dim' : ''}`}>
                   {row.displayName}
                 </span>
+                {health === 'low' ? (
+                  <span
+                    className={`label-sm rounded-full border px-1.5 py-0.5 ${tones.amber.pill} bg-amber/10`}
+                  >
+                    Under
+                  </span>
+                ) : null}
                 <span
-                  className={`num ml-auto text-[12px] ${
-                    failed
-                      ? 'text-copper'
-                      : row.balance === null
-                        ? 'text-ink-muted'
-                        : row.basis === 'usage'
-                          ? 'text-ink-dim'
-                          : 'text-teal'
-                  }`}
+                  className={`num ml-auto text-[12px] ${failed ? 'text-copper' : 'text-ink-dim'}`}
                 >
                   {failed
                     ? 'failed'
