@@ -61,7 +61,8 @@ src/               the core: library plus a CLI front end
 app/               the desktop app
   src/             React dashboard
   src-tauri/       Tauri shell, the only place that knows about both sides
-mockup/index.html  the static design reference the app was built from
+mockup/            the design references the app grew from, one file per
+                   surface (index, settings, chart, notification, empty-state)
 ```
 
 The core is a library with a thin CLI, and the Tauri shell is a third entry
@@ -373,6 +374,17 @@ the browser default on buttons, so every click target in the app — segments,
 switches, pills, the trash icon — was showing the plain arrow. One base-layer rule
 covers buttons, selects, summaries and `role="button"`, and excludes disabled
 controls so they cannot advertise a click they will not honour.
+
+**The empty dashboard says it in the corner, and it does not fade.** With no key
+stored, everything below the key field is hidden — the cards, the chart and the
+table are all gated on `configured.length > 0` — so the old centred card was
+floating in a space that was empty for a reason, which is what made it read as a
+placeholder. It is now a notice in the corner of the window, in the app's own
+panel colours rather than the OS toast grey, with the tray mark drawn in the same
+grey as `COLOUR_IDLE`; amber would claim a warning when the tray is idle too and
+nothing is actually wrong. It stays until a key is saved instead of timing out,
+because it is the only instruction the app gives at that point and one that fades
+leaves a first-run user looking at a blank page.
 
 ## Provider notes
 

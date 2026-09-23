@@ -67,6 +67,9 @@ export default function App() {
   const [keyDraft, setKeyDraft] = useState('')
   const [chosen, setChosen] = useState<string | null>(null)
   const [removing, setRemoving] = useState<ProviderOverview | null>(null)
+  // ponytail: the dismissal lasts the session. If every key is removed again
+  // later the notice will not come back; re-arm it here if that ever matters.
+  const [noticeDismissed, setNoticeDismissed] = useState(false)
 
   const started = useRef(false)
 
@@ -479,16 +482,6 @@ export default function App() {
           ) : null}
         </div>
 
-        {ready && configured.length === 0 ? (
-          <div className="mt-10 flex flex-col items-center rounded-[10px] border border-line bg-inset px-6 py-9 text-center">
-            <h2 className="text-[14px] font-medium">No providers connected</h2>
-            <p className="num mt-1.5 max-w-[420px] text-[11px] leading-relaxed text-ink-muted">
-              Paste a key above and choose the provider it belongs to. Keys go to your OS keychain
-              and are never written to the database.
-            </p>
-          </div>
-        ) : null}
-
         {configured.length > 0 ? (
           <>
             {/* zone: providers */}
@@ -548,6 +541,38 @@ export default function App() {
             in the database
           </span>
         </footer>
+      ) : null}
+
+      {/* Until a key is stored the dashboard is empty below the key field, so the
+          notice sits in the corner rather than centred in that space. It does not
+          fade: it is the only instruction the app gives at this point, and one
+          that disappears leaves nothing but a blank page. */}
+      {view === 'dashboard' && ready && configured.length === 0 && !noticeDismissed ? (
+        <div className="fixed bottom-4 right-4 flex w-[352px] gap-[11px] rounded-[10px] border border-line-strong bg-panel p-3 shadow-[0_14px_34px_rgba(0,0,0,0.55)]">
+          {/* Geometry mirrors status_icon() in main.rs: three descending bars,
+              widest first. Grey rather than amber because the tray icon is idle
+              in this state too — nothing is wrong, the app is just not set up. */}
+          <div className="relative h-[26px] w-[26px] shrink-0 rounded-[7px] border border-line bg-inset">
+            <span className="absolute left-1/2 top-[12.5%] h-[15.6%] w-[81%] -translate-x-1/2 rounded-[1px] bg-ink-muted" />
+            <span className="absolute left-1/2 top-[40.6%] h-[15.6%] w-[56%] -translate-x-1/2 rounded-[1px] bg-ink-muted" />
+            <span className="absolute left-1/2 top-[68.8%] h-[15.6%] w-[31%] -translate-x-1/2 rounded-[1px] bg-ink-muted" />
+          </div>
+          <div className="min-w-0">
+            <div className="font-sans text-[13px] font-medium">No providers connected</div>
+            <p className="num mt-1.5 text-[11px] leading-relaxed text-ink-muted">
+              Paste a key above and choose its provider. Keys go to your OS keychain, never the
+              database.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setNoticeDismissed(true)}
+            aria-label="Dismiss"
+            className="ml-auto shrink-0 self-start text-[13px] leading-none text-ink-muted transition hover:text-ink"
+          >
+            ✕
+          </button>
+        </div>
       ) : null}
 
       {removing ? (
