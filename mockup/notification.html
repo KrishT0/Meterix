@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Meterix — low balance notifications</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400..700&family=JetBrains+Mono:wght@400..600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --backdrop:#131312; --surface:#1C1C1B; --panel:#232322; --inset:#1A1A19;
+    --line:#2E2E2C; --line-strong:#3A3A37;
+    --ink:#E9E7E2; --ink-dim:#A8A69E; --ink-muted:#7A7871;
+    --amber:#E0A64B; --amber-line:#6A5220; --amber-tint:#2E2418;
+    --teal:#4DB6AC; --teal-tint:#17332C;
+    --copper:#D08A5C; --copper-tint:#33241A;
+    /* Approximating the Windows 11 dark toast, which the OS draws, not us. */
+    --toast:#2B2B2B;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--backdrop); color:var(--ink);
+    font-family:'JetBrains Mono',ui-monospace,monospace; -webkit-font-smoothing:antialiased; }
+  .shell { max-width:1000px; margin:0 auto; padding:28px 24px 80px; }
+  h1 { font-family:Inter,system-ui,sans-serif; font-size:20px; font-weight:600; letter-spacing:-0.015em; margin:8px 0 0; }
+  .label { font-size:11px; letter-spacing:0.14em; text-transform:uppercase; color:var(--ink-muted); }
+  .label-sm { font-size:10px; letter-spacing:0.14em; text-transform:uppercase; }
+  .num { font-variant-numeric:tabular-nums; }
+  .sub { color:var(--ink-muted); font-size:11.5px; line-height:1.7; margin:8px 0 0; max-width:78ch; }
+
+  section { margin-top:38px; border-top:1px solid var(--line); padding-top:22px; }
+  .sechead { display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; }
+  h2 { font-family:Inter,system-ui,sans-serif; font-size:14px; font-weight:600; margin:0; letter-spacing:-0.01em; }
+  .why { color:var(--ink-muted); font-size:11px; line-height:1.75; margin:10px 0 0; max-width:80ch; }
+  .why b { color:var(--ink-dim); font-weight:400; }
+
+  /* ── the toast, as close as a mock can get ── */
+  .toasts { display:grid; gap:16px; margin-top:20px; }
+  .toast {
+    background:var(--toast); border:1px solid #3B3B3B; border-radius:8px;
+    padding:13px 15px 14px; display:flex; gap:13px; max-width:430px;
+    box-shadow:0 12px 32px rgba(0,0,0,.5);
+  }
+  /* Geometry mirrors status_icon() in the app: three descending bars, widest
+     first and centred, in a 32px box. The mock should show the real mark. */
+  .tmark { position:relative; width:30px; height:30px; border-radius:7px; flex:none; }
+  .tmark span { position:absolute; left:50%; transform:translateX(-50%); height:15.6%; border-radius:1px; }
+  .tmark span:nth-child(1) { width:81%; top:12.5%; }
+  .tmark span:nth-child(2) { width:56%; top:40.6%; }
+  .tmark span:nth-child(3) { width:31%; top:68.8%; }
+  .tmark.amber { background:#3A2E17; }
+  .tmark.amber span { background:var(--amber); }
+  .tmark.copper { background:#3A2A1E; }
+  .tmark.copper span { background:var(--copper); }
+  .tbody { min-width:0; }
+  .tapp { font-size:10px; letter-spacing:0.04em; color:#9A9A9A; }
+  .ttitle { font-family:Inter,system-ui,sans-serif; font-size:13px; font-weight:600; margin-top:3px; letter-spacing:-0.005em; }
+  .tbody p { margin:4px 0 0; font-size:11.5px; color:#BFBFBF; line-height:1.55; }
+  .tcap { font-size:10px; color:var(--ink-muted); margin-top:8px; letter-spacing:0.1em; text-transform:uppercase; }
+
+  /* ── timeline ── */
+  .timing { margin-top:24px; display:grid; gap:12px; border:1px solid var(--line); border-radius:12px; background:var(--surface); padding:6px 16px 14px; }
+  .trow { padding:12px 0; border-bottom:1px solid var(--line); }
+  .trow:last-child { border-bottom:none; }
+  .trowhead { display:flex; align-items:baseline; gap:9px; }
+  .trowhead .n { font-size:10px; letter-spacing:0.12em; text-transform:uppercase; padding:2px 6px; border-radius:999px; border:1px solid var(--line-strong); color:var(--ink-dim); }
+  .trowhead .n.rec { background:var(--amber); border-color:var(--amber); color:#1A1408; }
+  .tname { font-family:Inter,system-ui,sans-serif; font-size:12.5px; font-weight:600; }
+  .tcount { margin-left:auto; font-size:10.5px; color:var(--ink-muted); }
+  .track { position:relative; height:30px; margin-top:10px; }
+  .ticks { position:absolute; inset:0; }
+  .tick { position:absolute; top:50%; margin-top:-4px; width:2px; height:8px; background:var(--line-strong); border-radius:1px; }
+  .fires { position:absolute; inset:0; }
+  .fire { position:absolute; top:9px; width:9px; height:9px; border-radius:999px; transform:translateX(-50%); }
+  .cross { position:absolute; top:0; bottom:0; width:1px; background:var(--teal); opacity:.55; }
+  .crosscap { position:absolute; top:-2px; transform:translateX(-50%); font-size:9px; letter-spacing:0.08em; color:var(--teal); white-space:nowrap; }
+  .note { font-size:10.5px; color:var(--ink-muted); margin-top:9px; line-height:1.6; }
+
+  /* ── settings rows ── */
+  .rows { margin-top:18px; border-top:1px solid var(--line); }
+  .row { display:flex; align-items:flex-start; justify-content:space-between; gap:32px; padding:13px 0; border-bottom:1px solid var(--line); }
+  .rtitle { font-size:12px; }
+  .rsub { font-size:11px; color:var(--ink-muted); margin-top:4px; line-height:1.6; }
+  .seg { display:flex; flex:none; border:1px solid var(--line-strong); background:var(--inset); border-radius:8px; padding:2px; }
+  .seg button { font:inherit; font-size:10px; letter-spacing:0.12em; text-transform:uppercase; border:0; background:none; color:var(--ink-dim); padding:5px 10px; border-radius:6px; cursor:pointer; }
+  .seg button[aria-pressed="true"] { background:var(--amber); color:#1A1408; }
+  .switch { position:relative; width:32px; height:18px; border-radius:999px; background:var(--amber); border:0; flex:none; margin-top:2px; }
+  .switch i { position:absolute; top:2px; right:2px; width:14px; height:14px; border-radius:999px; background:#1A1408; }
+  .absent { margin-top:16px; border:1px dashed var(--line-strong); border-radius:10px; padding:12px 14px; background:var(--inset); }
+  .absent .label-sm { color:var(--ink-dim); }
+  .absent p { margin:7px 0 0; font-size:11px; color:var(--ink-muted); line-height:1.7; }
+  .foot { margin-top:34px; border-top:1px solid var(--line); padding-top:16px; font-size:11px; color:var(--ink-muted); line-height:1.75; }
+  .foot b { color:var(--ink-dim); font-weight:400; }
+  code { color:var(--ink-dim); background:var(--inset); padding:1px 5px; border-radius:5px; font-size:10.5px; }
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <p class="label">Mockup</p>
+  <h1>Low balance notifications</h1>
+  <p class="sub">
+    The last piece of v2. The app already turns the tray amber and shows a callout on the dashboard,
+    but if you are not looking at either, nothing reaches you, which is the whole point of polling in
+    the background. Nothing here is applied to the app yet.
+  </p>
+
+  <!-- ══ 1. what it says ══ -->
+  <section>
+    <div class="sechead">
+      <h2>What it says</h2>
+      <span class="label-sm">the OS draws the frame</span>
+    </div>
+    <p class="why">
+      Only the icon and two lines of text belong to Meterix. The toast frame, its buttons and where it
+      appears are the operating system's, so this is an approximation of Windows 11 rather than a
+      design we control. That means the copy has to do all the work on its own.
+    </p>
+
+    <div class="toasts">
+      <div>
+        <div class="toast">
+          <div class="tmark amber"><span></span><span></span><span></span></div>
+          <div class="tbody">
+            <div class="tapp">Meterix</div>
+            <div class="ttitle">OpenRouter is running low</div>
+            <p>$6.40 left, below your $10.00 threshold.</p>
+          </div>
+        </div>
+        <div class="tcap">1 · one provider crosses its threshold</div>
+      </div>
+
+      <div>
+        <div class="toast">
+          <div class="tmark amber"><span></span><span></span><span></span></div>
+          <div class="tbody">
+            <div class="tapp">Meterix</div>
+            <div class="ttitle">Both providers are running low</div>
+            <p>OpenRouter $6.40 · CheaperInference $1.20</p>
+          </div>
+        </div>
+        <div class="tcap">2 · both cross in the same check</div>
+      </div>
+
+      <div>
+        <div class="toast">
+          <div class="tmark copper"><span></span><span></span><span></span></div>
+          <div class="tbody">
+            <div class="tapp">Meterix</div>
+            <div class="ttitle">CheaperInference refused the key</div>
+            <p>The stored key was rejected. Add a new one in Settings.</p>
+          </div>
+        </div>
+        <div class="tcap">3 · a key stops working</div>
+      </div>
+    </div>
+
+    <p class="why" style="margin-top:20px">
+      <b>Why the third one matters more than it looks.</b> A balance running low is something you can
+      deal with tomorrow. A key that has been revoked or expired means the app has quietly stopped
+      tracking that provider, and nothing on screen says so unless you open it. That is the failure
+      this app exists to prevent, so it deserves a notification more than a low balance does.
+    </p>
+  </section>
+
+  <!-- ══ 2. when it fires ══ -->
+  <section>
+    <div class="sechead">
+      <h2>When it fires</h2>
+      <span class="label-sm">one check every 30 minutes</span>
+    </div>
+    <p class="why">
+      This is the part that decides whether the feature is useful or infuriating. The teal mark is the
+      moment a balance drops below its threshold; dots are notifications.
+    </p>
+
+    <div class="timing">
+      <div class="trow">
+        <div class="trowhead">
+          <span class="n rec">A</span><span class="tname">The moment it crosses</span>
+          <span class="tcount">1 notification</span>
+        </div>
+        <div class="track">
+          <div class="cross" style="left:31%"></div>
+          <div class="crosscap" style="left:31%">crosses</div>
+          <div class="ticks" data-ticks="12"></div>
+          <div class="fires"><span class="fire" style="left:31%;background:var(--amber)"></span></div>
+        </div>
+        <div class="note">Fires once, then stays quiet. It will not speak again until the balance goes back above the threshold and crosses down a second time.</div>
+      </div>
+
+      <div class="trow">
+        <div class="trowhead">
+          <span class="n">B</span><span class="tname">Crossing, then once a day</span>
+          <span class="tcount">3 notifications</span>
+        </div>
+        <div class="track">
+          <div class="cross" style="left:31%"></div>
+          <div class="crosscap" style="left:31%">crosses</div>
+          <div class="ticks" data-ticks="12"></div>
+          <div class="fires">
+            <span class="fire" style="left:31%;background:var(--amber)"></span>
+            <span class="fire" style="left:64%;background:var(--amber);opacity:.75"></span>
+            <span class="fire" style="left:97%;background:var(--amber);opacity:.75"></span>
+          </div>
+        </div>
+        <div class="note">Easy to swipe away a notification you meant to act on. This repeats once a day until you top up, and is one click away from being turned on.</div>
+      </div>
+
+      <div class="trow">
+        <div class="trowhead">
+          <span class="n">C</span><span class="tname">Every check while it stays low</span>
+          <span class="tcount">14 notifications</span>
+        </div>
+        <div class="track">
+          <div class="cross" style="left:31%"></div>
+          <div class="crosscap" style="left:31%">crosses</div>
+          <div class="ticks" data-ticks="12"></div>
+          <div class="fires" data-fires-from="31"></div>
+        </div>
+        <div class="note">Shown to be rejected, not as a real option. At a 30 minute poll that is 48 notifications a day per provider. Within an hour you would turn the feature off, which is worse than not having it.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══ 3. the settings rows ══ -->
+  <section>
+    <div class="sechead">
+      <h2>The settings rows</h2>
+      <span class="label-sm">one new zone</span>
+    </div>
+    <p class="why">
+      Two rows, sitting between Alerts and Startup on the settings screen. They use the same row
+      shape as everything already there, so nothing new has to be invented.
+    </p>
+
+    <div class="rows" style="margin-top:22px">
+      <div class="row">
+        <div>
+          <div class="rtitle">Notify me when a balance drops below its threshold</div>
+          <div class="rsub">Uses each provider's own threshold, so a provider you have set to $10 warns at $10.</div>
+        </div>
+        <button class="switch" aria-pressed="true"><i></i></button>
+      </div>
+      <div class="row">
+        <div>
+          <div class="rtitle">While it stays low</div>
+          <div class="rsub">What happens after the first notification, if you have not topped up. Silent by default, because the tray already stays amber until you do.</div>
+        </div>
+        <div class="seg">
+          <button aria-pressed="true">Silent</button>
+          <button aria-pressed="false">Daily</button>
+          <button aria-pressed="false">Every check</button>
+        </div>
+      </div>
+      <div class="row" style="border-bottom:none">
+        <div>
+          <div class="rtitle">Tell me when a key stops working</div>
+          <div class="rsub">Separate from the balance warning, because it means the app has stopped tracking that provider entirely.</div>
+        </div>
+        <button class="switch" aria-pressed="true"><i></i></button>
+      </div>
+    </div>
+
+    <div class="absent">
+      <span class="label-sm">Deliberately not included</span>
+      <p>
+        A per-provider mute. It looks like it should exist, but the per-provider threshold already
+        does the job: if you do not want to hear about a provider until it is nearly empty, set its
+        threshold low. Adding a second control for the same intent gives you two places to look when
+        a notification does not arrive.
+      </p>
+    </div>
+  </section>
+
+  <div class="foot">
+    <b>What the app has to remember.</b> "The moment it crosses" only works if the app knows it has
+    already spoken. That state has to survive a restart, or closing and reopening the app re-fires a
+    notification for a balance that has been low for days. One row per provider in the database, the
+    same place the threshold lives.<br><br>
+    <b>Forecasts are not offered.</b> The dashboard shows a blended burn rate, but it is summed across
+    providers, so "about 3 days left" would be a per-provider claim built from a number that is not
+    per provider. Doing it properly needs a per-provider burn rate first. Say the word if you want that
+    in scope.<br><br>
+    <b>Quiet hours are not offered either.</b> Waking someone at 03:00 because a balance crossed $2 is
+    a real annoyance, but it is a second feature and the thresholds are already yours to set.
+  </div>
+
+</div>
+
+<script>
+  // Poll ticks, and the "every check" fires.
+  // Ticks were a flex row whose spacer elements carried the tick class as well,
+  // so the rule that made the spacers transparent was painting the ticks too and
+  // eleven of twelve vanished. Absolute positions cannot collide like that.
+  document.querySelectorAll('[data-ticks]').forEach((track) => {
+    const count = Number(track.dataset.ticks);
+    for (let i = 0; i < count; i++) {
+      const tick = document.createElement('div');
+      tick.className = 'tick';
+      tick.style.left = (((i + 0.5) / count) * 100) + '%';
+      track.appendChild(tick);
+    }
+  });
+
+  document.querySelectorAll('[data-fires-from]').forEach((layer) => {
+    const from = Number(layer.dataset.firesFrom);
+    for (let percent = from; percent <= 100; percent += (100 - from) / 6) {
+      const dot = document.createElement('span');
+      dot.className = 'fire';
+      dot.style.left = percent + '%';
+      dot.style.background = 'var(--amber)';
+      dot.style.opacity = percent === from ? '1' : '0.6';
+      layer.appendChild(dot);
+    }
+  });
+
+  // Settings segmented controls behave like the real one.
+  document.querySelectorAll('.seg').forEach((seg) => {
+    seg.querySelectorAll('button').forEach((button) => {
+      button.addEventListener('click', () => {
+        seg.querySelectorAll('button').forEach((other) => {
+          other.setAttribute('aria-pressed', String(other === button));
+        });
+      });
+    });
+  });
+</script>
+</body>
+</html>
