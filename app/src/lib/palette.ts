@@ -1,33 +1,31 @@
 /**
- * Which shade identifies a provider.
+ * Which shade each provider takes, by position.
  *
- * Identity and status are separate axes on purpose. These ten say "this is which
- * provider" and are used for the chart line, the dot, the meter, the basis label
- * and the card's tint and border. They deliberately avoid amber, orange and
- * copper, because those already mean "under your threshold" and "a key was
- * rejected" — a provider whose line happened to be amber would be unreadable.
+ * The ten hues live as `--color-hue-1` … `--color-hue-10` in index.css. This maps
+ * a provider's position in the list to one of them.
  *
- * The index is its position in the list, so a provider keeps its colour as long
- * as the list order holds. Reordering the list recolours every provider in every
- * surface at once, which is why nothing else stores an index.
+ * Interleaved through the spectrum rather than taken left to right. Shipping with
+ * two providers means positions 0 and 1 are the whole product, and taking the
+ * shades in hue order handed those two the closest pair in the set — Lime and
+ * Green, dE 18.4. Interleaved, the same pair is dE 100.3, and the first four stay
+ * above dE 34.
  *
- * There are ten and no more. Beyond that, two providers sharing a shade with a
- * distinguishing dash, or filtering the chart, beats an eleventh hue nobody can
- * name.
+ * Identity, not status. These say which provider something is, and never that
+ * something is wrong: amber, orange and copper already mean "under your
+ * threshold" and "a key was rejected", so a provider whose line happened to be
+ * amber would be unreadable. See index.css for how the set was chosen.
  */
-export const HUES = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] as const
-
-export type Hue = (typeof HUES)[number]
+const ORDER = [1, 7, 4, 10, 2, 8, 5, 9, 3, 6]
 
 /**
- * The colour value for a provider at this position in the list.
+ * The colour value for the provider at this position.
  *
- * Assign it to the `--hue` custom property on an element, and the `hue-*`
- * utilities in index.css derive the tint, the border, the dot and the label
- * colour from that one value.
+ * Assign it to the `--hue` custom property, and the `hue-*` utilities in
+ * index.css derive the tint, the border, the dot and the label colour from it.
+ *
+ * Past ten providers the colours repeat in order, which is visible and honest,
+ * unlike quietly running out of colour.
  */
 export function hueAt(index: number): string {
-  // Wrapped rather than clamped: past ten providers the colours repeat in order,
-  // which is visible and honest, unlike quietly running out of colour.
-  return `var(--color-hue-${HUES[index % HUES.length]})`
+  return `var(--color-hue-${ORDER[index % ORDER.length]})`
 }
