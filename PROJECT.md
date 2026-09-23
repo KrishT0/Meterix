@@ -61,8 +61,8 @@ src/               the core: library plus a CLI front end
 app/               the desktop app
   src/             React dashboard
   src-tauri/       Tauri shell, the only place that knows about both sides
-mockup/index.html  the whole app on one page — dashboard, settings and tray with
-                   six providers, plus what six providers would break
+mockup/index.html  the whole app on one page, and the proposed colour revamp:
+                   ten identity shades, cards tinted by provider, status by chip
 ```
 
 The core is a library with a thin CLI, and the Tauri shell is a third entry
