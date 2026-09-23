@@ -9,8 +9,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use std::collections::HashMap;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde::Serialize;
@@ -58,7 +58,10 @@ struct ProviderOverview {
 
 /// What one provider did on a refresh. Failures travel alongside successes
 /// rather than aborting the whole batch.
-#[derive(Serialize)]
+///
+/// `Clone` so the last batch can be kept for the tray: changing a threshold has
+/// to be able to recolour the icon without going back to the network.
+#[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct RefreshOutcome {
     provider: String,
@@ -71,6 +74,22 @@ struct RefreshOutcome {
     spend_window_days: Option<u32>,
     error_kind: Option<String>,
     error_message: Option<String>,
+}
+
+/// The outcomes of the last refresh.
+///
+/// Kept so that changing a threshold can recolour the tray straight away. A
+/// threshold moves no balance — only the comparison against one — so going back
+/// to the network would be slower and would record a reading that is not a poll.
+#[derive(Default)]
+struct LastOutcomes(Mutex<Vec<RefreshOutcome>>);
+
+impl LastOutcomes {
+    fn store(&self, rows: &[RefreshOutcome]) {
+        if let Ok(mut last) = self.0.lock() {
+            *last = rows.to_vec();
+        }
+    }
 }
 
 #[tauri::command]
@@ -164,6 +183,12 @@ async fn refresh_and_store(
     }
 
     update_tray(app, &rows, &thresholds);
+
+    // Remembered so a later threshold change can recolour the tray from these
+    // readings instead of fetching them again.
+    if let Some(cached) = app.try_state::<LastOutcomes>() {
+        cached.store(&rows);
+    }
 
     // Deliberately after the tray and the snapshots, so a notification that
     // cannot be shown never costs a recorded reading. The edge is consumed even
@@ -429,6 +454,37 @@ fn update_tray(app: &AppHandle, outcomes: &[RefreshOutcome], thresholds: &HashMa
     )));
 }
 
+/// Recolour the tray from the readings already on hand, against the thresholds as
+/// they are now.
+///
+/// Called after a threshold is written. Nothing on the network has changed, so
+/// the last batch of outcomes is still the right thing to compare — only the
+/// comparison itself moved. Without this the icon kept its old colour until the
+/// next poll, which can be half an hour away.
+///
+/// Returns quietly when nothing has been refreshed yet or the database cannot be
+/// read: a stale icon is better than a failed settings save.
+fn recolour_tray(app: &AppHandle) {
+    let Some(cached) = app.try_state::<LastOutcomes>() else {
+        return;
+    };
+    let Ok(rows) = cached.0.lock() else {
+        return;
+    };
+    if rows.is_empty() {
+        return;
+    }
+
+    let Ok(connection) = open_database() else {
+        return;
+    };
+    let Ok(thresholds) = resolved_threshold_map(&connection) else {
+        return;
+    };
+
+    update_tray(app, &rows, &thresholds);
+}
+
 fn show_dashboard(app: &AppHandle) {
     if let Some(popover) = app.get_webview_window(POPOVER_LABEL) {
         let _ = popover.hide();
@@ -687,14 +743,28 @@ fn save_settings(app: AppHandle, settings: Settings, autostart: bool) -> Result<
     // old one.
     app.state::<Poller>().wake.notify_one();
 
+    // The app-wide default threshold travels with this, so every provider sitting
+    // on that default needs its colour worked out again.
+    recolour_tray(&app);
+
     Ok(())
 }
 
 /// Null clears the override and puts the provider back on the app default.
 #[tauri::command]
-fn set_provider_threshold(provider: String, threshold: Option<f64>) -> Result<(), String> {
-    let connection = open_database().map_err(|error| error.to_string())?;
-    store_threshold(&connection, &provider, threshold).map_err(|error| error.to_string())
+fn set_provider_threshold(
+    app: AppHandle,
+    provider: String,
+    threshold: Option<f64>,
+) -> Result<(), String> {
+    {
+        let connection = open_database().map_err(|error| error.to_string())?;
+        store_threshold(&connection, &provider, threshold).map_err(|error| error.to_string())?;
+    }
+
+    recolour_tray(&app);
+
+    Ok(())
 }
 
 fn main() {
@@ -722,6 +792,7 @@ fn main() {
             let handle = app.handle().clone();
 
             app.manage(Poller::default());
+            app.manage(LastOutcomes::default());
             build_tray(&handle, Arc::clone(&quitting))?;
 
             // Closing the dashboard hides it rather than tearing down its
@@ -764,4 +835,90 @@ fn main() {
                 api.prevent_exit();
             }
         });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A provider that answered.
+    fn read(provider: &str, balance: f64) -> RefreshOutcome {
+        RefreshOutcome {
+            provider: provider.to_string(),
+            display_name: provider.to_string(),
+            ok: true,
+            balance: Some(balance),
+            basis: None,
+            account_credits: None,
+            usage: None,
+            spend_window_days: None,
+            error_kind: None,
+            error_message: None,
+        }
+    }
+
+    /// A provider that failed, with the identifier the core records for it.
+    fn failed(provider: &str, kind: &str) -> RefreshOutcome {
+        RefreshOutcome {
+            provider: provider.to_string(),
+            display_name: provider.to_string(),
+            ok: false,
+            balance: None,
+            basis: None,
+            account_credits: None,
+            usage: None,
+            spend_window_days: None,
+            error_kind: Some(kind.to_string()),
+            error_message: None,
+        }
+    }
+
+    fn thresholds(pairs: &[(&str, f64)]) -> HashMap<String, f64> {
+        pairs
+            .iter()
+            .map(|(name, value)| ((*name).to_string(), *value))
+            .collect()
+    }
+
+    #[test]
+    fn a_missing_key_does_not_force_the_error_colour() {
+        // What a fresh install looks like: no key, so nothing is wrong.
+        let outcomes = [failed("openrouter", MISSING_CREDENTIAL_KIND)];
+        assert_eq!(status_colour(&outcomes, &HashMap::new()), COLOUR_IDLE);
+    }
+
+    #[test]
+    fn other_failures_do_force_it() {
+        for kind in ["unauthorized", "forbidden", "rate_limited", "unreachable"] {
+            let outcomes = [failed("openrouter", kind)];
+            assert_eq!(
+                status_colour(&outcomes, &HashMap::new()),
+                COLOUR_ERROR,
+                "{kind} should colour the tray as an error"
+            );
+        }
+    }
+
+    #[test]
+    fn the_threshold_alone_decides_between_ok_and_low() {
+        // The same reading judged two ways. This is exactly what changing a
+        // threshold has to be able to move without fetching anything again.
+        let outcomes = [read("openrouter", 6.40)];
+
+        assert_eq!(
+            status_colour(&outcomes, &thresholds(&[("openrouter", 5.00)])),
+            COLOUR_OK
+        );
+        assert_eq!(
+            status_colour(&outcomes, &thresholds(&[("openrouter", 50.0)])),
+            COLOUR_LOW
+        );
+    }
+
+    #[test]
+    fn one_low_provider_is_enough() {
+        let outcomes = [read("openrouter", 6.40), read("cheaperinference", 1.00)];
+        let thresholds = thresholds(&[("openrouter", 5.00), ("cheaperinference", 2.00)]);
+        assert_eq!(status_colour(&outcomes, &thresholds), COLOUR_LOW);
+    }
 }

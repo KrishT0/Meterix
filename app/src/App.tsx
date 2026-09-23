@@ -132,6 +132,14 @@ export default function App() {
     }
   }, [load])
 
+  // Leaving Settings re-reads the dashboard. Thresholds are written by a different
+  // command from the balance poll, so nothing else would update the cards until
+  // the next check — up to a full poll interval later.
+  function showDashboard() {
+    setView('dashboard')
+    void load().catch((error) => setFatal(String(error)))
+  }
+
   const supported = overview.map((row) => row.name)
   const active = chosen ?? supported[0] ?? ''
   const configured = overview.filter((row) => row.configured)
@@ -249,7 +257,7 @@ export default function App() {
           <div className="flex items-center gap-2.5 border-b border-line px-5 py-3">
             <button
               type="button"
-              onClick={() => setView('dashboard')}
+              onClick={showDashboard}
               className="flex items-center gap-1.5 text-ink-dim transition hover:text-ink"
             >
               <svg
@@ -271,7 +279,7 @@ export default function App() {
             <span className="text-[13px] font-semibold tracking-[-0.01em]">Settings</span>
           </div>
 
-          <Settings onClose={() => setView('dashboard')} />
+          <Settings onClose={showDashboard} />
         </>
       ) : (
         <>

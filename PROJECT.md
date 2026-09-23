@@ -409,6 +409,17 @@ provider count, in the middle of the strip. Each card already carries its own
 tint, the table carries a status dot, and the tray goes amber — so the badge was
 the fourth place saying the same thing, and the only one that read like a banner.
 
+**Changing a threshold updates both surfaces at once.** Thresholds are written by
+commands that emit nothing — the only thing that emits `balances-updated` is the
+poll — so the cards and the tray icon both kept the old comparison until the next
+check, which can be half an hour away. The dashboard re-reads on the way out of
+Settings. The tray is recoloured from the last batch of outcomes, cached in Tauri
+state, because a threshold moves no balance: only the comparison against one. The
+readings already on hand are therefore still the right ones, and fetching again
+would be both slower and a lie in the chart, since it would store a reading that
+no poll asked for and skew the burn rate. The four tray-colour cases are pinned by
+tests in the app crate.
+
 ## Provider notes
 
 Checked against the live APIs rather than the documentation, because the two
