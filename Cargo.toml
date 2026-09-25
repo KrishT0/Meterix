@@ -27,3 +27,12 @@ keyring = { version = "3", features = ["apple-native"] }
 # undo the rustls-only dependency tree that keeps Linux packaging simple.
 [target.'cfg(target_os = "linux")'.dependencies]
 keyring = { version = "3", features = ["sync-secret-service", "crypto-rust"] }
+
+# Incremental compilation is what makes `target/` grow by gigabytes: every editing
+# session appends another cache beside the ones before it, and that cache was
+# 8.1 GB in `app/src-tauri` alone. It is off here so the folder stops growing, at
+# the cost of recompiling this crate after each edit rather than reusing the
+# previous session. The compiled dependency tree in `target/debug/deps` is
+# untouched — only the per-session reuse is given up.
+[profile.dev]
+incremental = false
