@@ -1,38 +1,28 @@
-[package]
-name = "meterix-core"
+# The whole project in one workspace: the core library with its CLI, and the
+# desktop app. Each used to be its own workspace root, which meant the lockfile
+# and the profile section had to be kept in step in two places and the two
+# dependency trees were compiled twice, into two target directories.
+#
+# `[profile]` and `[patch]` are only read from the root manifest, so anything
+# shared between members belongs here rather than in a member's own file.
+[workspace]
+resolver = "3"
+members = ["crates/meterix-core", "app/src-tauri"]
+
+[workspace.package]
 version = "0.1.0"
 edition = "2024"
 
-[dependencies]
-anyhow = "1"
-async-trait = "0.1"
-reqwest = { version = "0.13.5", features = ["json"] }
-rusqlite = { version = "0.32", features = ["bundled"] }
+# Versions used by more than one member. A crate only one member needs is
+# declared there, where its features are the only ones that matter.
+[workspace.dependencies]
 serde = { version = "1.0.229", features = ["derive"] }
-serde_json = "1"
-sha2 = "0.10"
-tokio = { version = "1.53.1", features = ["full"] }
-
-# keyring has no default features, and with none selected it silently falls
-# back to an in-memory mock store that accepts a write and then forgets it.
-# Picking a backend per platform is what makes the keychain real, so these
-# features are load-bearing rather than optional extras.
-[target.'cfg(target_os = "windows")'.dependencies]
-keyring = { version = "3", features = ["windows-native"] }
-
-[target.'cfg(target_os = "macos")'.dependencies]
-keyring = { version = "3", features = ["apple-native"] }
-
-# crypto-rust keeps this pure Rust. crypto-openssl would pull in OpenSSL and
-# undo the rustls-only dependency tree that keeps Linux packaging simple.
-[target.'cfg(target_os = "linux")'.dependencies]
-keyring = { version = "3", features = ["sync-secret-service", "crypto-rust"] }
+tokio = { version = "1.53.1" }
 
 # Incremental compilation is what makes `target/` grow by gigabytes: every editing
-# session appends another cache beside the ones before it, and that cache was
-# 8.1 GB in `app/src-tauri` alone. It is off here so the folder stops growing, at
-# the cost of recompiling this crate after each edit rather than reusing the
-# previous session. The compiled dependency tree in `target/debug/deps` is
-# untouched — only the per-session reuse is given up.
+# session appends another cache beside the ones before it. It is off so the folder
+# stops growing, at the cost of recompiling this project's own crates after each
+# edit rather than reusing the previous session. The compiled dependency tree in
+# `target/debug/deps` is untouched — only the per-session reuse is given up.
 [profile.dev]
 incremental = false

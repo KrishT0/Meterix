@@ -1,8 +1,14 @@
+# One workspace means one output directory, at the root.
 /target
+
 *.db
 
 # app build output
 /app/node_modules
 /app/dist
-/app/src-tauri/target
 /app/src-tauri/gen
+
+# Left over from when the app was its own workspace and built into its own target
+# directory. Nothing writes here any more. Ignored rather than deleted, so
+# removing it stays a separate decision from keeping a clean tree.
+/app/src-tauri/target

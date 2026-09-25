@@ -47,7 +47,7 @@ is deliberate: it keeps Linux packaging from needing system crypto headers.
 
 ```powershell
 git clone <this repo>
-cd meterix-core/app
+cd app
 npm install
 npm run tauri dev
 ```
@@ -59,8 +59,12 @@ cd app
 npm run tauri build
 ```
 
-The binary lands in `app/src-tauri/target/release/`. The installer step after it
-downloads NSIS on first use and writes to `target/release/bundle/`.
+The binary lands in `target/release/` at the repository root. The installer step
+after it downloads NSIS on first use and writes to `target/release/bundle/`.
+
+Everything is one Cargo workspace, so the whole project shares a single
+`Cargo.lock` and a single `target/` directory. `cargo test --workspace` and
+`cargo clippy --workspace` cover both the core and the app.
 
 **Use `npm run tauri build`, not `cargo build --release`.** A bare cargo build
 produces a dev-mode binary that loads the Vite dev server instead of the embedded
@@ -113,10 +117,11 @@ The core is a library with a thin CLI over it, useful for scripting and for
 checking a key without opening the app.
 
 ```
-meterix-core fetch [provider]              read one provider, or all of them
-meterix-core history <provider> [limit]    recent readings, newest first
-meterix-core set-key <provider> <key>      store a key in the OS keychain
-meterix-core forget-key <provider>         remove a stored key
+meterix-cli fetch [provider]               read one provider, or all of them
+meterix-cli history <provider> [limit]     recent readings, newest first
+meterix-cli export [provider]              every reading as CSV, on standard output
+meterix-cli set-key <provider> <key>       store a key in the OS keychain
+meterix-cli forget-key <provider>          remove a stored key
 ```
 
 Providers are `openrouter` and `cheaperinference`. `limit` defaults to 20, which
@@ -156,10 +161,9 @@ Worth knowing before you rely on it.
 ## Development
 
 ```powershell
-cargo test                 # 35 core tests
-cargo clippy --all-targets
+cargo test --workspace          # 52 tests: 48 in the core, 4 in the app crate
+cargo clippy --workspace --all-targets
 cd app && npx tsc --noEmit
-cd app/src-tauri && cargo test && cargo clippy --all-targets
 ```
 
 The core owns everything that talks to a provider, stores a reading or decides
@@ -167,17 +171,19 @@ what a balance means. The Tauri crate owns windows, the tray and notifications.
 The React app owns presentation and nothing else, which is why it holds no
 thresholds and no copy for what a provider error means.
 
-`PROJECT.md` is the longer document: data model, the reasoning behind decisions
-that would otherwise look arbitrary, and an honest list of gaps. `mockup/index.html`
-is the design reference, showing all three surfaces at once.
+`docs/PROJECT.md` is the longer document: data model, the reasoning behind
+decisions that would otherwise look arbitrary, and an honest list of gaps.
+`mockup/index.html` is the design reference, showing all three surfaces at once.
 
 ## Layout
 
 ```
-src/                  the core, as a library with a CLI entry point
+crates/meterix-core/  the core: a library, plus a thin CLI called meterix-cli
 app/                  the desktop app
   src/                React dashboard, popover and settings
   src-tauri/          Tauri shell: windows, tray, notifications, poller
-mockup/index.html     the whole app on one page
-PROJECT.md            design decisions, data model, known gaps
+website/              the single-page site, not built yet
+mockup/index.html     the whole app on one page, as a design reference
+docs/PROJECT.md       design decisions, data model, known gaps
+Cargo.toml            one workspace: shared versions, one lockfile, one target/
 ```

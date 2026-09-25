@@ -16,15 +16,15 @@ use meterix_core::{
 const DEFAULT_HISTORY_LIMIT: usize = 20;
 
 const USAGE: &str = "\
-meterix-core — how much credit is left with each LLM provider
+meterix-cli — how much credit is left with each LLM provider
 
 usage
-  meterix-core [fetch [provider]]        read every provider, store a reading
-  meterix-core history <provider> [n]    the last n readings, 20 by default
-  meterix-core export [provider]         every reading as CSV, on standard output
-  meterix-core set-key <provider> <key>  verify a key, then store it
-  meterix-core forget-key <provider>     remove the stored key
-  meterix-core help                      show this
+  meterix-cli [fetch [provider]]        read every provider, store a reading
+  meterix-cli history <provider> [n]    the last n readings, 20 by default
+  meterix-cli export [provider]         every reading as CSV, on standard output
+  meterix-cli set-key <provider> <key>  verify a key, then store it
+  meterix-cli forget-key <provider>     remove the stored key
+  meterix-cli help                      show this
 
 A key comes from the OS keychain first and the provider's environment variable
 second, so the keychain always wins. `fetch` with no provider covers all of
@@ -155,10 +155,10 @@ async fn main() -> Result<()> {
         "set-key" => {
             let provider = args
                 .get(2)
-                .context("usage: meterix-core set-key <provider> <key>")?;
+                .context("usage: meterix-cli set-key <provider> <key>")?;
             let key = args
                 .get(3)
-                .context("usage: meterix-core set-key <provider> <key>")?;
+                .context("usage: meterix-cli set-key <provider> <key>")?;
 
             set_key(provider, key).await
         }
@@ -181,7 +181,7 @@ async fn main() -> Result<()> {
         "forget-key" => {
             let provider = args
                 .get(2)
-                .context("usage: meterix-core forget-key <provider>")?;
+                .context("usage: meterix-cli forget-key <provider>")?;
 
             match forget_key(provider)? {
                 Some(env_name) => println!(
@@ -198,7 +198,7 @@ async fn main() -> Result<()> {
         "history" => {
             let provider = args
                 .get(2)
-                .context("usage: meterix-core history <provider> [limit]")?;
+                .context("usage: meterix-cli history <provider> [limit]")?;
             let limit = match args.get(3) {
                 Some(raw) => raw.parse().context("limit must be a whole number")?,
                 None => DEFAULT_HISTORY_LIMIT,
@@ -207,7 +207,7 @@ async fn main() -> Result<()> {
             show_history(provider, limit)
         }
         _ => Err(anyhow!(
-            "unknown command: {command}\nrun `meterix-core --help` for the commands and providers"
+            "unknown command: {command}\nrun `meterix-cli --help` for the commands and providers"
         )),
     }
 }

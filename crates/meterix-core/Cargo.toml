@@ -1,0 +1,36 @@
+[package]
+name = "meterix-core"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+# The command line front end lives in this package, but the binary is named for
+# what someone types rather than for the library it links.
+[[bin]]
+name = "meterix-cli"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+async-trait = "0.1"
+reqwest = { version = "0.13.5", features = ["json"] }
+rusqlite = { version = "0.32", features = ["bundled"] }
+serde = { workspace = true }
+serde_json = "1"
+sha2 = "0.10"
+tokio = { workspace = true, features = ["full"] }
+
+# keyring has no default features, and with none selected it silently falls
+# back to an in-memory mock store that accepts a write and then forgets it.
+# Picking a backend per platform is what makes the keychain real, so these
+# features are load-bearing rather than optional extras.
+[target.'cfg(target_os = "windows")'.dependencies]
+keyring = { version = "3", features = ["windows-native"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+keyring = { version = "3", features = ["apple-native"] }
+
+# crypto-rust keeps this pure Rust. crypto-openssl would pull in OpenSSL and
+# undo the rustls-only dependency tree that keeps Linux packaging simple.
+[target.'cfg(target_os = "linux")'.dependencies]
+keyring = { version = "3", features = ["sync-secret-service", "crypto-rust"] }

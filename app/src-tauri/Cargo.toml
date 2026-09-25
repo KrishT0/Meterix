@@ -1,29 +1,18 @@
 [package]
 name = "meterix"
-version = "0.1.0"
-edition = "2024"
+version.workspace = true
+edition.workspace = true
 description = "Tray app for tracking LLM API credit balances"
 publish = false
-
-# Its own workspace root on purpose. Without this the crate would be pulled
-# into the parent package's workspace, and the one thing this step must not do
-# is disturb the core crate that already works.
-[workspace]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-meterix-core = { path = "../.." }
-serde = { version = "1", features = ["derive"] }
+meterix-core = { path = "../../crates/meterix-core" }
+serde = { workspace = true }
 tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-autostart = "2"
 tauri-plugin-notification = "2"
 # Only for the poller's sleep; the rest of the async runtime comes from Tauri.
-tokio = { version = "1", features = ["time", "sync", "macros"] }
-
-# Its own workspace root, so the root package's `[profile]` does not reach here:
-# this has to be repeated or the dependency tree in this target directory keeps
-# its incremental caches. See the note in the root Cargo.toml.
-[profile.dev]
-incremental = false
+tokio = { workspace = true, features = ["time", "sync", "macros"] }

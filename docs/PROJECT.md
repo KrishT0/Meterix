@@ -57,17 +57,30 @@ Each step is meant to run before the next one starts.
 ## Layout
 
 ```
-src/               the core: library plus a CLI front end
-app/               the desktop app
-  src/             React dashboard
-  src-tauri/       Tauri shell, the only place that knows about both sides
-mockup/index.html  the whole app on one page, and the proposed colour revamp:
-                   ten identity shades, cards tinted by provider, status by chip
+crates/meterix-core/  the core: a library plus a CLI front end, `meterix-cli`
+app/                  the desktop app
+  src/                React dashboard
+  src-tauri/          Tauri shell, the only place that knows about both sides
+website/              the single-page site, not built yet
+mockup/index.html     the whole app on one page, and the proposed colour revamp:
+                      ten identity shades, cards tinted by provider, status by chip
+docs/PROJECT.md       this document
+Cargo.toml            one workspace over both crates
 ```
 
 The core is a library with a thin CLI, and the Tauri shell is a third entry
-point over the same library. `app/src-tauri` declares its own empty workspace
-so it cannot disturb the core crate.
+point over the same library.
+
+**One workspace, and it was three separate ones before.** `app/src-tauri` used to
+declare its own empty `[workspace]` so it could not disturb the core crate, which
+then had its own. The cost was two `Cargo.lock` files to keep in step, two
+dependency trees compiled twice into two `target/` directories, and — because
+`[profile]` is only read from a workspace root — the same settings written twice.
+The root `Cargo.toml` now lists both members, shares `version` and `edition`
+through `[workspace.package]` and the versions that more than one member needs
+through `[workspace.dependencies]`. Cargo still allows a member to ask for
+features of its own on top of a workspace version, which is how `meterix-core`
+gets `tokio`'s full feature set while the app takes only what its poller needs.
 
 ## Running it
 
@@ -120,10 +133,11 @@ stub. That is an estimate, and the one number in this section that is.
 ## Commands
 
 ```
-meterix-core fetch [provider]              fetch one provider, or all of them
-meterix-core history <provider> [limit]    recent snapshots, newest first
-meterix-core set-key <provider> <key>      store an API key in the OS keychain
-meterix-core forget-key <provider>         remove a stored API key
+meterix-cli fetch [provider]               fetch one provider, or all of them
+meterix-cli history <provider> [limit]     recent snapshots, newest first
+meterix-cli export [provider]              every reading as CSV, on standard output
+meterix-cli set-key <provider> <key>       store an API key in the OS keychain
+meterix-cli forget-key <provider>          remove a stored API key
 ```
 
 `limit` defaults to 20. At a 30-minute poll that is roughly ten hours, so pass a
@@ -279,9 +293,17 @@ writing, because a keychain that accepts a write and cannot return it is worse
 than one that refuses outright.
 
 **One name.** The product is Meterix. The core crate is `meterix-core`, the app
-crate is `meterix`, the keychain service and data directory are both
-`meterix-core`. Nothing was renamed after keys were stored, so no key was
-stranded.
+crate is `meterix`, and the CLI binary is `meterix-cli` rather than `meterix-core`
+— the crate is named for what it is, the binary for what someone types.
+
+The keychain service and the data directory are both still `meterix-core`, and
+they are deliberately not renamed with the rest. Those two strings are the
+product's *storage identity* rather than an internal name: the keys in Windows
+Credential Manager are filed as `openrouter.meterix-core`, and the readings live
+at `%APPDATA%\meterix-core\meterix.db`. Renaming either one orphans data that
+already exists, for no benefit a user can see. Changing them would need a one-time
+migration that moves the database and re-files both keys, which is a separate job
+from tidying up the repository.
 
 **The dashboard only plots readings that are balances.** Rows whose `basis` is
 `usage` hold spend, which climbs as the account empties. Drawing one on the
