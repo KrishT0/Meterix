@@ -59,7 +59,15 @@ export interface SettingsView {
   lowBalanceThreshold: number
   notifyLowBalance: boolean
   notifyKeyErrors: boolean
+  /** The file the database is read from right now. */
   databasePath: string
+  /**
+   * The folder the database will be read from on the next launch. Differs from
+   * the folder above only between choosing a new one and restarting.
+   */
+  dataDirectory: string
+  /** Where CSV exports are written, already resolved. */
+  exportDirectory: string
   autostartEnabled: boolean
   providers: ProviderSetting[]
 }
@@ -108,13 +116,23 @@ export const setProviderInterval = (provider: string, minutes: number | null) =>
   invoke<void>('set_provider_interval', { provider, minutes })
 
 /**
- * Write the reading history out as CSV, in the folder the database lives in.
+ * Write the reading history out as CSV, in the chosen folder.
  *
  * Resolves with the path written. The file is derived from the database, so
  * calling this again replaces it rather than leaving copies to accumulate.
  */
 export const exportHistory = (provider?: string) =>
   invoke<string>('export_history', { provider: provider ?? null })
+
+/**
+ * Choose a different folder for the database. Takes effect on the next launch.
+ *
+ * Resolves with the chosen folder, or `null` if the picker was cancelled.
+ */
+export const setDataDirectory = () => invoke<string | null>('set_data_directory')
+
+/** Choose where CSV exports are written. `null` if the picker was cancelled. */
+export const setExportDirectory = () => invoke<string | null>('set_export_directory')
 
 /** What happened when a key was offered for saving. */
 export interface SaveKeyOutcome {

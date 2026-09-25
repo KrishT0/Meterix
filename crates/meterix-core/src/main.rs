@@ -9,8 +9,8 @@ use std::env;
 use anyhow::{Context, Result, anyhow};
 
 use meterix_core::{
-    Balance, PROVIDERS, SaveOutcome, display_name, fetch_balances, forget_key, history, history_csv,
-    open_database, requested_providers, save_snapshot, save_verified_key,
+    Balance, PROVIDERS, SaveOutcome, adopt_legacy_database, display_name, fetch_balances, forget_key,
+    history, history_csv, open_database, requested_providers, save_snapshot, save_verified_key,
 };
 
 const DEFAULT_HISTORY_LIMIT: usize = 20;
@@ -145,6 +145,15 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
+    // Before anything opens the database: an earlier build kept it in a platform
+    // data directory, and this one looks in ~/.meterix.
+    if let Some(previous) = adopt_legacy_database()? {
+        eprintln!(
+            "carried the database over from {}. The old copy is still there.",
+            previous.display()
+        );
+    }
+
     let command = args.get(1).map(String::as_str).unwrap_or("fetch");
 
     match command {
@@ -173,6 +182,8 @@ async fn main() -> Result<()> {
             }
 
             let connection = open_database()?;
+            // Standard output, so `export | something` works. The chosen folder
+            // belongs to the window, which is the thing that writes a file.
             print!("{}", history_csv(&connection, only)?);
 
             Ok(())

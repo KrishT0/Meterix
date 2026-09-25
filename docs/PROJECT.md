@@ -234,15 +234,18 @@ null when the provider did not report them. `recorded_at` is UTC.
 API keys are never in this database. They live in the OS keychain, under the
 service name `meterix-core`, keyed by provider name.
 
-The database lives in the per-user app data directory, not the working
-directory, because a packaged app is launched with an arbitrary CWD and may be
-installed somewhere read-only.
+The database lives in `~/.meterix/meterix.db`: a dot folder in the home
+directory rather than a per-platform app data folder, which is one path to
+remember instead of three. `METERIX_DB` overrides the whole path.
 
-- Windows: `%APPDATA%\meterix-core\meterix.db`
-- macOS: `~/Library/Application Support/meterix-core/meterix.db`
-- Linux: `$XDG_DATA_HOME/meterix-core/meterix.db`, or `~/.local/share/...`
+The folder can be moved from the settings screen, with a native folder picker.
+The choice cannot live in the database it is about, so `~/.meterix` stays as an
+anchor and a `location` file inside it names somewhere else. A database written
+by an earlier build, which was in the platform data directory
+(`%APPDATA%\meterix-core` on Windows and its equivalents), is copied into
+`~/.meterix` once at startup, and the original is left where it was.
 
-`METERIX_DB` overrides the whole path.
+CSV exports go to their own chosen folder, which defaults to the data directory.
 
 ## Decisions worth knowing
 
@@ -296,14 +299,16 @@ than one that refuses outright.
 crate is `meterix`, and the CLI binary is `meterix-cli` rather than `meterix-core`
 — the crate is named for what it is, the binary for what someone types.
 
-The keychain service and the data directory are both still `meterix-core`, and
-they are deliberately not renamed with the rest. Those two strings are the
-product's *storage identity* rather than an internal name: the keys in Windows
-Credential Manager are filed as `openrouter.meterix-core`, and the readings live
-at `%APPDATA%\meterix-core\meterix.db`. Renaming either one orphans data that
-already exists, for no benefit a user can see. Changing them would need a one-time
-migration that moves the database and re-files both keys, which is a separate job
-from tidying up the repository.
+The keychain service is still `meterix-core`, and it is deliberately not renamed
+with the rest. That string is the product's *storage identity* rather than an
+internal name: the keys in Windows Credential Manager are filed as
+`openrouter.meterix-core`. Renaming it orphans credentials that already exist,
+for no benefit a user can see, and would need a migration that re-files both keys.
+
+The data directory was renamed, from `meterix-core` to `.meterix`, and that is the
+difference between the two: the database can be moved by copying a file and is
+worth having in a sane place, while the keychain entry is a name a user never
+sees and cannot be moved without rewriting credentials.
 
 **The dashboard only plots readings that are balances.** Rows whose `basis` is
 `usage` hold spend, which climbs as the account empties. Drawing one on the

@@ -19,11 +19,14 @@ use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager, WindowEvent};
 use tauri_plugin_notification::NotificationExt;
+// Brings `app.dialog()` into scope for the folder picker.
+use tauri_plugin_dialog::DialogExt;
 
 use meterix_core::{
     Basis, MISSING_CREDENTIAL_KIND, Notice, PROVIDERS, Settings, Snapshot, credential_hint,
-    display_name, due_providers, fallback_thresholds, fetch_selected, first_reading_at, forget_key,
-    history, history_csv, load_settings, open_database, provider_fingerprint, provider_intervals,
+    adopt_legacy_database, display_name, due_providers, export_directory, fallback_thresholds,
+    fetch_selected, first_reading_at, forget_key, history, history_csv, load_settings, open_database,
+    provider_fingerprint, provider_intervals,
     provider_thresholds, record_attempts, requested_providers, resolved_thresholds,
     save_settings as persist_settings, save_snapshot, save_verified_key,
     set_provider_interval as store_interval, set_provider_threshold as store_threshold,
@@ -716,7 +719,13 @@ struct SettingsView {
     low_balance_threshold: f64,
     notify_low_balance: bool,
     notify_key_errors: bool,
+    /// The file the database is read from right now.
     database_path: String,
+    /// The folder the database would be read from next launch. Different from
+    /// `database_path`'s folder only between choosing a new one and restarting.
+    data_directory: String,
+    /// Where CSV exports are written, already resolved.
+    export_directory: String,
     autostart_enabled: bool,
     providers: Vec<ProviderSetting>,
 }
@@ -797,6 +806,15 @@ fn settings(app: AppHandle) -> Result<SettingsView, String> {
         database_path: meterix_core::database_path()
             .map(|path| path.display().to_string())
             .unwrap_or_else(|error| format!("unavailable: {error}")),
+        // Resolved from the anchor, so it is the folder the *next* launch will use
+        // rather than the one the open connection came from. The two differ only
+        // between choosing a new folder and restarting.
+        data_directory: meterix_core::data_directory()
+            .map(|path| path.display().to_string())
+            .unwrap_or_else(|error| format!("unavailable: {error}")),
+        export_directory: export_directory(&current)
+            .map(|path| path.display().to_string())
+            .unwrap_or_else(|error| format!("unavailable: {error}")),
         autostart_enabled: app.autolaunch().is_enabled().unwrap_or(false),
         providers,
     })
@@ -867,17 +885,18 @@ fn set_provider_interval(provider: String, minutes: Option<u32>) -> Result<(), S
     store_interval(&connection, &provider, minutes).map_err(|error| error.to_string())
 }
 
-/// Write the reading history out as CSV, in the folder the database lives in.
+/// Write the reading history out as CSV, in the chosen folder.
 ///
-/// Straight into the data folder rather than through a save dialog, because a
-/// dialog means another plugin in the tree and this project keeps its dependencies
-/// thin on purpose. The window shows the path it wrote.
+/// Straight into a folder rather than through a save dialog: the setting says where
+/// exports belong, and asking every time would make the setting pointless. The
+/// window shows the path it wrote.
 ///
 /// The file is derived from the database and can be written again at any time, so
 /// exporting twice replaces it instead of leaving copies to accumulate.
 #[tauri::command]
 fn export_history(provider: Option<String>) -> Result<String, String> {
     let connection = open_database().map_err(|error| error.to_string())?;
+    let settings = load_settings(&connection).map_err(|error| error.to_string())?;
     let csv = history_csv(&connection, provider.as_deref()).map_err(|error| error.to_string())?;
 
     let name = provider.as_deref().map_or_else(
@@ -885,11 +904,8 @@ fn export_history(provider: Option<String>) -> Result<String, String> {
         |provider| format!("meterix-{provider}-history.csv"),
     );
 
-    let folder = meterix_core::database_path()
-        .map_err(|error| error.to_string())?
-        .parent()
-        .ok_or_else(|| "the database path has no folder".to_string())?
-        .to_path_buf();
+    let folder = export_directory(&settings).map_err(|error| error.to_string())?;
+    std::fs::create_dir_all(&folder).map_err(|error| error.to_string())?;
     let path = folder.join(name);
 
     std::fs::write(&path, csv)
@@ -898,11 +914,54 @@ fn export_history(provider: Option<String>) -> Result<String, String> {
     Ok(path.display().to_string())
 }
 
+/// Point the app at a different folder for the database.
+///
+/// Copies the database there and records the choice; it is read from the new
+/// folder on the next launch, which is why the window says so. Moving the file
+/// while a connection is open is how a database ends up half in each place.
+///
+/// Resolves with the new folder, or `None` if the picker was cancelled.
+#[tauri::command]
+fn set_data_directory(app: AppHandle) -> Result<Option<String>, String> {
+    let Some(folder) = app.dialog().file().blocking_pick_folder() else {
+        return Ok(None);
+    };
+
+    let folder = folder
+        .into_path()
+        .map_err(|error| format!("that folder cannot be used: {error}"))?;
+
+    meterix_core::relocate_data_directory(&folder).map_err(|error| error.to_string())?;
+
+    Ok(Some(folder.display().to_string()))
+}
+
+/// Choose where CSV exports are written. `None` if the picker was cancelled.
+#[tauri::command]
+fn set_export_directory(app: AppHandle) -> Result<Option<String>, String> {
+    let Some(folder) = app.dialog().file().blocking_pick_folder() else {
+        return Ok(None);
+    };
+
+    let folder = folder
+        .into_path()
+        .map_err(|error| format!("that folder cannot be used: {error}"))?;
+    let chosen = folder.display().to_string();
+
+    let connection = open_database().map_err(|error| error.to_string())?;
+    let mut settings = load_settings(&connection).map_err(|error| error.to_string())?;
+    settings.export_directory = Some(chosen.clone());
+    persist_settings(&connection, &settings).map_err(|error| error.to_string())?;
+
+    Ok(Some(chosen))
+}
+
 fn main() {
     let quitting = Arc::new(AtomicBool::new(false));
     let quit_flag = Arc::clone(&quitting);
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
@@ -919,9 +978,22 @@ fn main() {
             save_settings,
             set_provider_threshold,
             set_provider_interval,
-            export_history
+            export_history,
+            set_data_directory,
+            set_export_directory
         ])
         .setup(move |app| {
+            // Before the poller or any window touches the database: an earlier build
+            // kept it in a platform data directory, and this one looks in ~/.meterix.
+            match adopt_legacy_database() {
+                Ok(Some(previous)) => eprintln!(
+                    "carried the database over from {}; the old copy is still there",
+                    previous.display()
+                ),
+                Ok(None) => {}
+                Err(error) => eprintln!("could not carry the database over: {error}"),
+            }
+
             let handle = app.handle().clone();
 
             app.manage(LastOutcomes::default());

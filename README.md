@@ -85,7 +85,8 @@ table.
 
 | | |
 |---|---|
-| Database | `%APPDATA%\meterix-core\meterix.db` |
+| Database | `~/.meterix/meterix.db`, movable from the settings screen |
+| Exports | CSV history, to a chosen folder; defaults to the data directory |
 | Keys | Windows Credential Manager, service `meterix-core` |
 | Settings | The `settings` table inside the same database file |
 

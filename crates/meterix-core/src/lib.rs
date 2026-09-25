@@ -10,7 +10,7 @@ use std::collections::{HashMap, HashSet};
 use std::env;
 use std::error::Error;
 use std::fmt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, anyhow};
 use async_trait::async_trait;
@@ -28,8 +28,17 @@ use sha2::{Digest, Sha256};
 pub const KEYRING_SERVICE: &str = "meterix-core";
 pub const PROVIDERS: [&str; 2] = ["openrouter", "cheaperinference"];
 
-const DATA_DIR: &str = "meterix-core";
+/// The folder the app uses unless it has been moved: `~/.meterix`.
+///
+/// A dot directory in the home folder rather than a platform data directory, the
+/// way tools like this usually live, and one path to remember instead of three.
+const DATA_DIR: &str = ".meterix";
+/// The same folder under its old name, in the platform data directory. Only used
+/// to find a database written by an earlier build so it can be carried over.
+const LEGACY_DATA_DIR: &str = "meterix-core";
 const DB_FILE: &str = "meterix.db";
+/// Inside the anchor, a one-line file naming a different folder for the database.
+const LOCATION_FILE: &str = "location";
 /// Overrides the database location. Used by tests; handy for second instances.
 const DB_PATH_ENV: &str = "METERIX_DB";
 
@@ -811,30 +820,164 @@ pub async fn fetch_selected(names: &[&'static str]) -> Result<Vec<Outcome>> {
 ///
 /// Per-user application data, never the working directory: a packaged app is
 /// launched with an arbitrary CWD and may be installed read-only.
+///
+/// `~/.meterix/meterix.db` unless the user has moved it, which is recorded in the
+/// anchor rather than in the database — the location has to be known before there
+/// is a database to ask.
 pub fn database_path() -> Result<PathBuf> {
     if let Some(path) = env::var_os(DB_PATH_ENV) {
         return Ok(PathBuf::from(path));
     }
 
-    // ponytail: hand-rolled rather than adding the `directories` crate. Step 3
-    // replaces this with Tauri's app_data_dir(), which resolves here anyway.
-    let base = if cfg!(windows) {
-        env::var_os("APPDATA").map(PathBuf::from)
-    } else if cfg!(target_os = "macos") {
-        env::var_os("HOME").map(|home| PathBuf::from(home).join("Library/Application Support"))
-    } else {
-        env::var_os("XDG_DATA_HOME")
-            .map(PathBuf::from)
-            .or_else(|| env::var_os("HOME").map(|home| PathBuf::from(home).join(".local/share")))
-    };
-
-    let base = base.context("could not locate the user data directory")?;
-    let directory = base.join(DATA_DIR);
+    let directory = data_directory()?;
 
     std::fs::create_dir_all(&directory)
         .with_context(|| format!("could not create {}", directory.display()))?;
 
     Ok(directory.join(DB_FILE))
+}
+
+/// The folder the database is actually read from.
+///
+/// The anchor is fixed at `~/.meterix`; a `location` file inside it names somewhere
+/// else. That indirection is why a moved database works at all: the choice cannot
+/// live in the database it is about.
+pub fn data_directory() -> Result<PathBuf> {
+    data_directory_in(&anchor_directory())
+}
+
+fn data_directory_in(anchor: &Path) -> Result<PathBuf> {
+    let Ok(recorded) = std::fs::read_to_string(anchor.join(LOCATION_FILE)) else {
+        return Ok(anchor.to_path_buf());
+    };
+
+    let recorded = recorded.trim();
+    if recorded.is_empty() {
+        return Ok(anchor.to_path_buf());
+    }
+
+    let moved = PathBuf::from(recorded);
+    Ok(if moved.is_absolute() {
+        moved
+    } else {
+        anchor.join(moved)
+    })
+}
+
+/// Point the app at a different folder for the database.
+///
+/// Writes the `location` file; it takes effect the next time the database is
+/// opened, which is the next launch. Copying the database itself is the caller's
+/// job, because only the caller can tell the user what happened if it fails.
+pub fn set_data_directory(directory: &Path) -> Result<()> {
+    let anchor = anchor_directory();
+    std::fs::create_dir_all(&anchor)
+        .with_context(|| format!("could not create {}", anchor.display()))?;
+
+    let location = anchor.join(LOCATION_FILE);
+    std::fs::write(&location, directory.display().to_string())
+        .with_context(|| format!("could not write {}", location.display()))
+}
+
+/// Carry a database written by an earlier build into the new default location.
+///
+/// Called once at startup, before anything opens the database. The old location
+/// was a platform data directory (`%APPDATA%\meterix-core` and its equivalents);
+/// the new one is `~/.meterix`, so without this every existing install would open
+/// a brand new database and look empty.
+///
+/// Copies rather than moves. The file it leaves behind is the only copy of
+/// readings that cannot be fetched again, and keeping it costs a few kilobytes.
+pub fn adopt_legacy_database() -> Result<Option<PathBuf>> {
+    // The override names a database explicitly, and a `location` file means the
+    // user has already said where they want it. Neither is ours to second-guess.
+    if env::var_os(DB_PATH_ENV).is_some() {
+        return Ok(None);
+    }
+
+    let anchor = anchor_directory();
+    if data_directory_in(&anchor)? != anchor {
+        return Ok(None);
+    }
+
+    let Some(legacy) = legacy_database_path() else {
+        return Ok(None);
+    };
+    let Some(legacy) = legacy.parent() else {
+        return Ok(None);
+    };
+
+    adopt_from(legacy, &anchor)
+}
+
+/// The copy itself, taking both folders so it can be exercised without touching
+/// a real home directory.
+fn adopt_from(legacy: &Path, target: &Path) -> Result<Option<PathBuf>> {
+    let source = legacy.join(DB_FILE);
+    let destination = target.join(DB_FILE);
+
+    // A database already at the target is never overwritten, and an absent one at
+    // the old location is not an error — most installs will never have had one.
+    if destination.exists() || !source.exists() {
+        return Ok(None);
+    }
+
+    std::fs::create_dir_all(target)
+        .with_context(|| format!("could not create {}", target.display()))?;
+    std::fs::copy(&source, &destination)
+        .with_context(|| format!("could not carry {} over", source.display()))?;
+
+    // Without a checkpointed write-ahead log the copy can be missing the newest
+    // readings, or miss the schema entirely.
+    let sidecar = PathBuf::from(format!("{}-wal", source.display()));
+    if sidecar.exists() {
+        let _ = std::fs::copy(&sidecar, format!("{}-wal", destination.display()));
+    }
+
+    Ok(Some(source))
+}
+
+/// The user's home folder.
+///
+/// `USERPROFILE` first on Windows: it is the one that means "this user's home",
+/// where `HOME` is set by whichever shell happened to launch the app and can point
+/// somewhere else entirely. Both are tried, so a stripped environment still works.
+fn home() -> Option<PathBuf> {
+    if cfg!(windows) && env::var_os("USERPROFILE").is_some() {
+        return env::var_os("USERPROFILE").map(PathBuf::from);
+    }
+
+    env::var_os("HOME").map(PathBuf::from)
+}
+
+/// The fixed folder everything hangs off: `~/.meterix`.
+fn anchor_directory() -> PathBuf {
+    home().map_or_else(|| PathBuf::from(DATA_DIR), |home| anchor_directory_in(&home))
+}
+
+/// Split out from the above so a test can hand it a folder instead of depending on
+/// whoever is running it having a home directory and no database.
+fn anchor_directory_in(home: &Path) -> PathBuf {
+    home.join(DATA_DIR)
+}
+
+/// Where an earlier build kept the database: a platform data directory.
+///
+/// Only used to find one so it can be carried over. The `directories` crate would
+/// cover more platforms for less code, but this has to keep resolving the *old*
+/// layout, which is frozen, so a handful of lines is the honest size of it.
+fn legacy_database_path() -> Option<PathBuf> {
+    let base = if cfg!(windows) {
+        env::var_os("APPDATA").map(PathBuf::from)
+    } else if cfg!(target_os = "macos") {
+        home().map(|home| home.join("Library/Application Support"))
+    } else {
+        env::var_os("XDG_DATA_HOME")
+            .map(PathBuf::from)
+            .or_else(|| home().map(|home| home.join(".local/share")))
+    }?;
+
+    Some(base.join(LEGACY_DATA_DIR).join(DB_FILE))
 }
 
 /// Open the database and bring its schema up to date.
@@ -858,6 +1001,52 @@ fn column_exists(connection: &Connection, table: &str, column: &str) -> Result<b
     }
 
     Ok(false)
+}
+
+/// Where an export should be written: the chosen folder, or the data directory.
+///
+/// Resolved here rather than at each call site, so the CLI and the window cannot
+/// disagree about where the file went.
+pub fn export_directory(settings: &Settings) -> Result<PathBuf> {
+    match settings.export_directory.as_deref() {
+        Some(chosen) => Ok(PathBuf::from(chosen)),
+        None => data_directory(),
+    }
+}
+
+/// Move the database to a different folder, keeping the readings.
+///
+/// Records the choice and copies the file; the original is left where it was, so a
+/// mistake is recoverable by deleting the `location` file rather than by finding a
+/// backup. Takes effect on the next open, because moving the file out from under a
+/// live connection is how a database ends up half in one place and half in another.
+///
+/// Refuses to overwrite a database that is already there. Pointing at a folder
+/// with someone else's readings in it should fail loudly, not replace them.
+pub fn relocate_data_directory(directory: &Path) -> Result<PathBuf> {
+    let current = database_path()?;
+    let target = directory.join(DB_FILE);
+
+    std::fs::create_dir_all(directory)
+        .with_context(|| format!("could not create {}", directory.display()))?;
+
+    if current != target {
+        if target.exists() {
+            return Err(anyhow!(
+                "{} already has a database in it; pick an empty folder",
+                directory.display()
+            ));
+        }
+
+        if current.exists() {
+            std::fs::copy(&current, &target)
+                .with_context(|| format!("could not copy the database to {}", target.display()))?;
+        }
+    }
+
+    set_data_directory(directory)?;
+
+    Ok(target)
 }
 
 /// The schema this build writes, recorded in `PRAGMA user_version`.
@@ -1287,6 +1476,13 @@ pub struct Settings {
     pub notify_low_balance: bool,
     /// Whether a credential that stops working is worth one.
     pub notify_key_errors: bool,
+    /// Where CSV exports are written. `None` means the data directory, which is
+    /// where the database already is and therefore never a surprise.
+    ///
+    /// This one can live in the database, unlike the database's own location:
+    /// it is only ever read when the database is already open.
+    #[serde(default)]
+    pub export_directory: Option<String>,
 }
 
 impl Default for Settings {
@@ -1298,6 +1494,7 @@ impl Default for Settings {
             // background is being told without having to go and look.
             notify_low_balance: true,
             notify_key_errors: true,
+            export_directory: None,
         }
     }
 }
@@ -1306,6 +1503,7 @@ const SETTING_POLL_INTERVAL: &str = "poll_interval_minutes";
 const SETTING_LOW_THRESHOLD: &str = "low_balance_threshold";
 const SETTING_NOTIFY_LOW: &str = "notify_low_balance";
 const SETTING_NOTIFY_ERRORS: &str = "notify_key_errors";
+const SETTING_EXPORT_DIRECTORY: &str = "export_directory";
 
 /// Stored as `1` or `0`. Anything else is ignored rather than guessed at, so a
 /// garbled row cannot quietly switch notifications off.
@@ -1360,6 +1558,14 @@ pub fn load_settings(connection: &Connection) -> Result<Settings> {
                     settings.notify_key_errors = on;
                 }
             }
+            SETTING_EXPORT_DIRECTORY => {
+                // Blank means "wherever the database is", which is not a folder
+                // named after the empty string.
+                let trimmed = value.trim();
+                if !trimmed.is_empty() {
+                    settings.export_directory = Some(trimmed.to_string());
+                }
+            }
             _ => {}
         }
     }
@@ -1384,6 +1590,10 @@ pub fn save_settings(connection: &Connection, settings: &Settings) -> Result<()>
         (
             SETTING_NOTIFY_ERRORS,
             flag(settings.notify_key_errors).to_string(),
+        ),
+        (
+            SETTING_EXPORT_DIRECTORY,
+            settings.export_directory.clone().unwrap_or_default(),
         ),
     ];
 
@@ -2801,6 +3011,98 @@ provider_threshold_usd,key_fingerprint"
 
         assert_eq!(csv.lines().count(), 1);
         assert!(csv.ends_with('\n'));
+    }
+
+    /// The anchor is fixed, so a database can be found before there is a database
+    /// to ask. A `location` file inside it is what says the user moved it.
+    #[test]
+    fn a_moved_data_directory_is_read_back_from_the_anchor() {
+        let root = std::env::temp_dir().join("meterix-location-test");
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).expect("temp dir");
+
+        let anchor = root.join(DATA_DIR);
+        let moved = root.join("elsewhere");
+
+        // The anchor first, then the anchor after being pointed somewhere else.
+        assert_eq!(anchor_directory_in(&root), anchor);
+
+        std::fs::create_dir_all(&anchor).expect("anchor");
+        std::fs::write(anchor.join(LOCATION_FILE), moved.display().to_string()).expect("written");
+        assert_eq!(data_directory_in(&anchor_directory_in(&root)).expect("resolved"), moved);
+
+        // A relative path is taken from the anchor rather than the process's
+        // working directory, which for a packaged app is anywhere at all.
+        std::fs::write(anchor.join(LOCATION_FILE), "sibling").expect("written");
+        assert_eq!(data_directory_in(&anchor_directory_in(&root)).expect("resolved"), anchor.join("sibling"));
+
+        // An empty file means no opinion, not "the current directory".
+        std::fs::write(anchor.join(LOCATION_FILE), "   ").expect("written");
+        assert_eq!(data_directory_in(&anchor_directory_in(&root)).expect("resolved"), anchor);
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Carrying a database over is the one thing that can quietly lose readings,
+    /// so each reason to do nothing is checked rather than assumed.
+    #[test]
+    fn a_legacy_database_is_carried_over_only_when_there_is_one_to_carry() {
+        let root = std::env::temp_dir().join("meterix-adopt-test");
+        let _ = std::fs::remove_dir_all(&root);
+        let legacy = root.join(LEGACY_DATA_DIR);
+        let target = root.join(DATA_DIR);
+        std::fs::create_dir_all(&legacy).expect("legacy dir");
+
+        // Nothing at the old location: nothing to do.
+        assert_eq!(
+            adopt_from(&legacy, &target).expect("checked"),
+            None,
+            "an absent legacy database is not an error"
+        );
+
+        std::fs::write(legacy.join(DB_FILE), b"old readings").expect("legacy db");
+        let carried = adopt_from(&legacy, &target).expect("carried");
+        assert_eq!(carried, Some(legacy.join(DB_FILE)));
+        assert_eq!(
+            std::fs::read(target.join(DB_FILE)).expect("copied"),
+            b"old readings"
+        );
+        // Left behind on purpose: it is the only copy of readings that cannot be
+        // fetched again.
+        assert!(legacy.join(DB_FILE).exists(), "the original is kept");
+
+        // A database already at the target is never overwritten.
+        std::fs::write(target.join(DB_FILE), b"newer readings").expect("target db");
+        assert_eq!(adopt_from(&legacy, &target).expect("checked"), None);
+        assert_eq!(
+            std::fs::read(target.join(DB_FILE)).expect("read"),
+            b"newer readings"
+        );
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// A write-ahead log not yet checkpointed holds the newest readings, so a copy
+    /// of the database alone can be missing them — or missing the schema.
+    #[test]
+    fn a_legacy_write_ahead_log_is_carried_over_too() {
+        let root = std::env::temp_dir().join("meterix-wal-test");
+        let _ = std::fs::remove_dir_all(&root);
+        let legacy = root.join(LEGACY_DATA_DIR);
+        let target = root.join(DATA_DIR);
+        std::fs::create_dir_all(&legacy).expect("legacy dir");
+
+        std::fs::write(legacy.join(DB_FILE), b"main").expect("legacy db");
+        std::fs::write(legacy.join("meterix.db-wal"), b"uncheckpointed").expect("wal");
+
+        adopt_from(&legacy, &target).expect("carried");
+
+        assert_eq!(
+            std::fs::read(target.join("meterix.db-wal")).expect("copied"),
+            b"uncheckpointed"
+        );
+
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]

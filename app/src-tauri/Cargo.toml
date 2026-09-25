@@ -13,6 +13,9 @@ meterix-core = { path = "../../crates/meterix-core" }
 serde = { workspace = true }
 tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-autostart = "2"
+# A native folder picker. The alternative was a text field the user types a path
+# into, which is both worse to use and easier to get wrong.
+tauri-plugin-dialog = "2"
 tauri-plugin-notification = "2"
 # Only for the poller's sleep; the rest of the async runtime comes from Tauri.
 tokio = { workspace = true, features = ["time", "sync", "macros"] }

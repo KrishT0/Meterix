@@ -123,6 +123,9 @@ export function Settings({ onClose }: { onClose: () => void }) {
   const [draft, setDraft] = useState<Draft | null>(null)
   const [problem, setProblem] = useState<string | null>(null)
   const [exported, setExported] = useState<string | null>(null)
+  /** Set when the database has been pointed at a new folder this session, which
+   *  only takes effect on the next launch. */
+  const [moved, setMoved] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
 
   const load = useCallback(async () => {
@@ -160,6 +163,23 @@ export function Settings({ onClose }: { onClose: () => void }) {
     try {
       setExported(await api.exportHistory())
       setProblem(null)
+    } catch (error) {
+      setProblem(String(error))
+    }
+  }
+
+  /** Both pickers write a real path on disk, so a refusal has to be shown rather
+   *  than swallowed — the folder picker is the only way to change either. */
+  async function chooseFolder(kind: 'data' | 'export') {
+    try {
+      const chosen =
+        kind === 'data' ? await api.setDataDirectory() : await api.setExportDirectory()
+      if (chosen === null) return
+
+      setProblem(null)
+      if (kind === 'data') setMoved(chosen)
+      else setExported(null)
+      await load()
     } catch (error) {
       setProblem(String(error))
     }
@@ -476,15 +496,22 @@ export function Settings({ onClose }: { onClose: () => void }) {
             <div className="min-w-0">
               <div className="text-[12px]">Database</div>
               <div className="num mt-1 truncate text-[11px] text-ink-muted">
-                {settings.databasePath}
+                {moved ?? settings.databasePath}
               </div>
+              {/* Said plainly, because a folder that does not appear to do anything
+                  until the next launch reads as a button that failed. */}
+              {moved ? (
+                <div className="num mt-1 text-[11px] text-amber-dim">
+                  Readings are being copied there. Restart Meterix to use it.
+                </div>
+              ) : null}
             </div>
             <Button
               variant="secondary"
               className="shrink-0"
-              onClick={() => void navigator.clipboard.writeText(settings.databasePath)}
+              onClick={() => void chooseFolder('data')}
             >
-              Copy path
+              Change folder
             </Button>
           </div>
 
@@ -494,12 +521,26 @@ export function Settings({ onClose }: { onClose: () => void }) {
               {/* The path replaces the explanation once there is one, so the row
                   says where the file went rather than what the button does. */}
               <div className="num mt-1 truncate text-[11px] text-ink-muted">
-                {exported ?? 'Every stored reading as CSV, written beside the database.'}
+                {exported ?? 'Every stored reading as CSV, written to the folder below.'}
               </div>
             </div>
-            <Button variant="secondary" className="shrink-0" onClick={() => void exportCsv()}>
-              Export CSV
-            </Button>
+            <div className="flex shrink-0 items-center gap-2">
+              <Button variant="secondary" onClick={() => void chooseFolder('export')}>
+                Change folder
+              </Button>
+              <Button variant="secondary" onClick={() => void exportCsv()}>
+                Export CSV
+              </Button>
+            </div>
+          </div>
+
+          <div className="flex items-start justify-between gap-8 py-3">
+            <div className="min-w-0">
+              <div className="text-[12px]">Exports go to</div>
+              <div className="num mt-1 truncate text-[11px] text-ink-muted">
+                {settings.exportDirectory}
+              </div>
+            </div>
           </div>
         </div>
       </div>
