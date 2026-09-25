@@ -11,10 +11,15 @@ popover on the tray icon when you only want a glance.
 
 ## What it does
 
-- Checks every configured provider on a timer, 30 minutes by default.
+- Checks every configured provider on a timer, 30 minutes by default, or on an
+  interval you set for one provider alone. Intervals are honoured to within 30
+  seconds.
 - Shows each provider's remaining balance, where the number came from, and when it was read.
 - Charts balance over time, using only readings from the credential you have now. Swap in a different account and the old readings are not drawn as one continuous line.
-- Keeps a per-provider low threshold, with an app-wide default for any provider that has none.
+- Keeps a per-provider low threshold. Leave one blank and the provider's own
+  published threshold applies — CheaperInference reports the balance it
+  auto-recharges at — falling back to the app-wide default for a provider that
+  publishes none.
 - Sends a Windows notification when a balance crosses its threshold, and when a key is rejected. Each fires once per crossing, not once per poll.
 - Can start at login.
 
@@ -141,6 +146,7 @@ Worth knowing before you rely on it.
 
 - **Two providers.** The list is compiled in, not data. Adding one is a code change.
 - **No installer has been built.** The bundler fetches NSIS on first run, and that download has not completed in the environment this was developed in. The config is ready; nothing has been produced from it.
+- **A removed key can come back.** Removing a provider deletes its keychain entry, but if the matching environment variable is set, the app keeps using it and the provider stays on the list. The app says which variable, since it cannot unset one for you.
 - **Dark only.** There is no light theme.
 - **Native title bar.** The reference design has a custom one; the window uses the Windows chrome.
 - **Thresholds do not re-open notifications.** A key that gets rejected notifies; a balance crossing notifies. Editing a threshold recolours the tray straight away, but the toast for it arrives at the next poll, because a toast is tied to a reading.

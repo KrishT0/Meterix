@@ -145,13 +145,16 @@
   .sw.off { background:var(--line-strong); } .sw.off i { right:auto; left:2px; background:var(--ink-muted); }
   .money { display:inline-flex; align-items:center; gap:8px; border:1px solid var(--line); background:var(--inset); border-radius:8px; padding:8px 12px; flex:none; }
   .sgrid { margin-top:11px; border-top:1px solid var(--line); border-bottom:1px solid var(--line); }
-  .shead, .srow { display:grid; grid-template-columns:1.4fr 1.1fr 0.9fr; gap:12px; align-items:center; padding:10px 0; }
+  .shead, .srow { display:grid; grid-template-columns:1.2fr 1fr 0.6fr 0.7fr 0.8fr; gap:12px;
+    align-items:center; padding:10px 0; white-space:nowrap; }
   .shead { padding:9px 0 8px; border-bottom:1px solid var(--line); }
   .srow { border-bottom:1px solid var(--line); }
   .srow:last-child { border-bottom:none; }
   .sname { display:flex; align-items:center; font-size:12px; }
   .sright { display:flex; align-items:center; justify-content:flex-end; gap:6px; }
   .sin { border:1px solid var(--line); background:var(--inset); border-radius:6px; padding:4px 7px; min-width:54px; text-align:right; font-size:12px; }
+  /* A value that stands in for a placeholder: the provider is on the default. */
+  .sin-muted { color:var(--ink-muted); }
   .savebar { display:flex; align-items:center; gap:12px; margin-top:26px; padding-top:16px; border-top:1px solid var(--line); }
   .spill { font-size:10px; letter-spacing:0.14em; text-transform:uppercase; color:var(--ink-muted); }
   .sbtns { margin-left:auto; display:flex; gap:8px; }
@@ -601,7 +604,7 @@
             <div class="srow2">
               <div>
                 <div class="stitle">Check balances every</div>
-                <div class="sdesc">Applied to every provider. Shorter intervals mean more requests to each one.</div>
+                <div class="sdesc">Applied to every provider without an interval of its own. Shorter intervals mean more requests to each one.</div>
               </div>
               <span class="segs"><span>15m</span><span class="on">30m</span><span>1h</span><span>6h</span></span>
             </div>
@@ -621,7 +624,7 @@
             <div class="srow2">
               <div>
                 <div class="stitle">Default low balance</div>
-                <div class="sdesc">Used for any provider without its own. Turns the tray amber.</div>
+                <div class="sdesc">Used for a provider that has no threshold of its own and publishes none. Turns the tray amber.</div>
               </div>
               <span class="money"><span class="dim">$</span><span class="num">5.00</span></span>
             </div>
@@ -647,40 +650,60 @@
           <div class="sgrid">
             <div class="shead">
               <span class="label-sm">Provider</span><span class="label-sm">Key</span>
+              <span class="label-sm" style="text-align:right">Since</span>
+              <span class="label-sm" style="text-align:right">Every</span>
               <span class="label-sm" style="text-align:right">Low at</span>
             </div>
             <div class="srow">
-  <span class="sname"><span class="sdot" style="background:#A9D05C"></span>OpenRouter</span>
-  <span class="dim num">sk-or-v1…2204</span>
-  <span class="sright"><span class="dim">$</span><span class="sin">15.00</span></span>
-</div>
-<div class="srow">
-  <span class="sname"><span class="sdot" style="background:#77D161"></span>CheaperInference</span>
-  <span class="dim num">ci_live_…6d96</span>
-  <span class="sright"><span class="dim">$</span><span class="sin">5.00</span></span>
-</div>
-<div class="srow">
-  <span class="sname"><span class="sdot" style="background:#6DD588"></span>Anthropic</span>
-  <span class="dim num">sk-ant-…9f21</span>
-  <span class="sright"><span class="dim">$</span><span class="sin">20.00</span></span>
-</div>
-<div class="srow">
-  <span class="sname"><span class="sdot" style="background:#5ACFB0"></span>Groq</span>
-  <span class="dim num">gsk_…7c3d</span>
-  <span class="sright"><span class="dim">$</span><span class="sin">10.00</span></span>
-</div>
-<div class="srow">
-  <span class="sname"><span class="sdot" style="background:#7BC6D9"></span>Together AI</span>
-  <span class="dim num">tgp_v1_…4b88</span>
-  <span class="sright"><span class="dim">$</span><span class="sin">10.00</span></span>
-</div>
-<div class="srow">
-  <span class="sname"><span class="sdot" style="background:#9EB5E3"></span>DeepInfra</span>
-  <span class="dim num">di_…2a0f</span>
-  <span class="sright"><span class="dim">$</span><span class="sin">5.00</span></span>
-</div>
+              <span class="sname"><span class="sdot" style="background:#A9D05C"></span>OpenRouter</span>
+              <span class="dim num">sk-or-v1…2204</span>
+              <span class="dim num" style="text-align:right">22 Sep</span>
+              <span class="sright"><span class="sin sin-muted">30</span><span class="dim">m</span></span>
+              <span class="sright"><span class="dim">$</span><span class="sin">15.00</span></span>
+            </div>
+            <div class="srow">
+              <span class="sname"><span class="sdot" style="background:#77D161"></span>CheaperInference</span>
+              <span class="dim num">ci_live_…6d96</span>
+              <span class="dim num" style="text-align:right">22 Sep</span>
+              <span class="sright"><span class="sin">240</span><span class="dim">m</span></span>
+              <span class="sright"><span class="dim">$</span><span class="sin">5.00</span></span>
+            </div>
+            <div class="srow">
+              <span class="sname"><span class="sdot" style="background:#6DD588"></span>Anthropic</span>
+              <span class="dim num">sk-ant-…9f21</span>
+              <span class="dim num" style="text-align:right">3 Sep</span>
+              <span class="sright"><span class="sin">60</span><span class="dim">m</span></span>
+              <span class="sright"><span class="dim">$</span><span class="sin">20.00</span></span>
+            </div>
+            <div class="srow">
+              <span class="sname"><span class="sdot" style="background:#5ACFB0"></span>Groq</span>
+              <span class="dim num">gsk_…7c3d</span>
+              <span class="dim num" style="text-align:right">18 Sep</span>
+              <span class="sright"><span class="sin sin-muted">30</span><span class="dim">m</span></span>
+              <span class="sright"><span class="dim">$</span><span class="sin">10.00</span></span>
+            </div>
+            <div class="srow">
+              <span class="sname"><span class="sdot" style="background:#7BC6D9"></span>Together AI</span>
+              <span class="dim num">tgp_v1_…4b88</span>
+              <span class="dim num" style="text-align:right">9 Sep</span>
+              <span class="sright"><span class="sin">120</span><span class="dim">m</span></span>
+              <span class="sright"><span class="dim">$</span><span class="sin">10.00</span></span>
+            </div>
+            <div class="srow">
+              <span class="sname"><span class="sdot" style="background:#9EB5E3"></span>DeepInfra</span>
+              <span class="dim num">di_…2a0f</span>
+              <span class="dim num" style="text-align:right">—</span>
+              <span class="sright"><span class="sin sin-muted">30</span><span class="dim">m</span></span>
+              <span class="sright"><span class="dim">$</span><span class="sin">5.00</span></span>
+            </div>
           </div>
-          <p class="why" style="margin-top:10px">Leave a provider blank to use the default. Its placeholder shows what that is.</p>
+          <p class="why" style="margin-top:10px">
+              Leave a provider blank to use its own default, and its placeholder shows what that is:
+              the balance the provider calls low itself, or the default above for a provider that
+              publishes none. An empty <b>Every</b> follows the polling default above. <b>Since</b> is
+              the earliest reading stored rather than when the key was added, so it works for a
+              provider that was already configured — DeepInfra has no readings yet and shows a dash.
+          </p>
         </div>
 
         <div class="zone">

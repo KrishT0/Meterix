@@ -103,11 +103,13 @@ At the default 30-minute poll that works out at roughly 7 CPU-seconds a day and
 3–4 MB of database a year. Nearly all the memory is WebView2 — the Edge runtime,
 not anything this repo builds. The app's own process is under 30 MB.
 
-Six WebView2 processes for a tray app is not a mistake. `tauri.conf.json` declares
-two windows, `main` and `tray`, and the second is a live webview from startup even
-though it is hidden and most sessions never open it. Creating it on the first tray
-click would drop a renderer for a slower first click. Its share has not been
-measured, so no figure is claimed for it.
+Six WebView2 processes for a tray app is more than the dashboard alone needs.
+`tauri.conf.json` declares two windows, `main` and `tray`, and the second used to
+be a live webview from startup even though it is hidden and most sessions never
+open it. These figures were taken that way. The popover is now built on the first
+tray click instead (`"create": false`), so a session that never opens it should
+carry one renderer fewer — not re-measured, so no new figure is claimed. The cost
+moved to the first click: one webview build, not timed.
 
 The installer has never been built here. The bundler downloads NSIS 3.11 and that
 fetch fails in this environment, so `targets: "all"` has never produced anything.
@@ -135,11 +137,13 @@ As built, which is not what the original draft said:
 
 ```sql
 providers (
-  id, name, low_balance_threshold, notified_below, notified_error_kind
+  id, name, low_balance_threshold, notified_below, notified_error_kind,
+  poll_interval_minutes, last_attempt_at
 )
 
 balance_snapshots (
-  id, provider_id, remaining, basis, account_credits, usage, recorded_at
+  id, provider_id, remaining, basis, account_credits, usage, spend_window_days,
+  provider_threshold_usd, key_fingerprint, recorded_at
 )
 
 settings (
@@ -148,8 +152,9 @@ settings (
 ```
 
 `providers.low_balance_threshold` is nullable, and null is the normal case: it
-means "use the app default". Zero would mean "never warn me", which is a
-different thing, so the column stays null rather than defaulting to a number.
+means "use the provider's own threshold if it publishes one, and the app default
+otherwise". Zero would mean "never warn me", which is a different thing, so the
+column stays null rather than defaulting to a number.
 
 `providers.notified_below` and `notified_error_kind` record what the user was
 last told, so a notification is an edge rather than a state. `notified_below`
@@ -165,6 +170,32 @@ remembers.
 `poll_interval_minutes`, `low_balance_threshold`, `notify_low_balance` and
 `notify_key_errors`. Unknown keys are ignored on read rather than being an error,
 so an older build opening a newer database loses nothing.
+
+There is deliberately no `created_at` on `providers`. When tracking began is
+derived from the earliest snapshot, because that is the fact the database holds.
+A timestamp written when the row was inserted would be a second, weaker copy of
+it, and it could say nothing at all about a provider that was already configured
+the first time the app ran — which is every existing install. The settings screen
+prints that earliest reading as `Since`.
+
+**The schema is versioned, and `CREATE TABLE` is deliberately out of date.**
+`PRAGMA user_version` holds the version, and every column added after the original
+three tables lives as a step in `migrate` rather than in the `CREATE TABLE`
+statement. That looks wrong until you consider the alternative: with the current
+columns written into `CREATE TABLE`, a brand new file already has most of the
+markers that say how far it has come, so it is mistaken for a part-migrated one
+and the steps that would add the rest are skipped. Keeping `CREATE TABLE` at the
+original schema means a fresh database and a migrated one walk identical steps,
+which a test asserts by comparing their column lists.
+
+Databases written before the version existed report 0 however far they have
+actually come, since the column-sniffing code they were built by left no record.
+So version 0 is resolved once by inspecting the shape, and the answer is written
+down; after that the version is the authority and nothing looks at columns again.
+The steps are plain `ALTER`s, not "add if missing" checks, because once the
+version is known a step that cannot run is a real problem rather than something
+to skip quietly. A version from a *newer* build is left alone rather than lowered,
+or the next upgrade would re-run steps that have already happened.
 
 The draft imagined a single `available_usd` column. That turned out to be
 impossible to fill honestly: OpenRouter has no single number that means
@@ -266,15 +297,44 @@ the key brings its chart back.
 **A failed fetch in one provider does not discard the others.** Each provider's
 error is reported on its own card and the rest still refresh.
 
+**The poller wakes on a beat and fetches whatever is due.** There is no per-window
+sleep any more. One loop wakes every 30 seconds and asks the database which
+providers have gone past their own interval, then fetches those in a single pass —
+so a provider that rate-limits can be given four hours without the other two
+waiting behind it, and a provider that is failing backs off for its interval
+instead of being retried on the next beat.
+
+`providers.last_attempt_at` is what makes that question answerable. It has to be
+stored rather than held in memory: the poller restarts with the app, and "is this
+due" must not reset to "yes" on every launch. It also stays separate from
+`balance_snapshots.recorded_at`, which says when a *reading* was stored — a failed
+check moves the first and not the second, and collapsing them would make a stale
+provider look freshly read. The comparison itself is SQLite's
+(`strftime('%s','now') - strftime('%s', last_attempt_at)`), because the crate has
+no date library and does not need one for a subtraction. The 30-second beat is
+what the interval is honoured to: a one-minute interval would be doubled by a
+60-second beat.
+
+Every path that fetches records the attempt, not just the poller, so pressing
+Refresh also pushes the next automatic check out.
+
 **Low is a per-provider threshold, resolved in one place.** `effective_threshold`
-is the only thing that decides whether a balance counts as low, and it resolves a
-provider's own value against the app default. The resolved number travels out on
-the provider payload, so the tray and the dashboard read the same field instead of
-each keeping a constant. That duplication is gone: there is exactly one literal
-left (`DEFAULT_LOW_BALANCE_THRESHOLD` in the core) and no threshold in TypeScript
-at all. The header prints a single "low below" figure only when every provider
-agrees on one, and says "thresholds per provider" otherwise, because showing one
-of two different numbers would be a quiet lie.
+is the only thing that decides whether a balance counts as low, and it resolves
+three things in order: the number the user set for that provider, then the
+number the provider publishes for itself, then the app default. The middle rung
+is why `balance_snapshots` carries `provider_threshold_usd`: CheaperInference
+says which balance it auto-recharges at, which is a better answer to "am I
+running low" than a flat `$2` that knows nothing about the account. It is stored
+with the reading rather than re-fetched because the tray and the notifier resolve
+a threshold from stored state. The resolved number travels out on the provider
+payload, so the tray and the dashboard read the same field instead of each
+keeping a constant. That duplication is gone: there is exactly one literal left
+(`DEFAULT_LOW_BALANCE_THRESHOLD` in the core) and no threshold in TypeScript at
+all. The settings screen shows the fallback as each provider's placeholder, so a
+blank box from the form means what it means at poll time. The header prints a
+single "low below" figure only when every provider agrees on one, and says
+"thresholds per provider" otherwise, because showing one of two different numbers
+would be a quiet lie.
 
 **The chart axis is fitted to the readings, not to zero.** A balance moving
 between $6 and $12 drawn on a $0-$12 axis is a nearly flat line, which hides
@@ -543,15 +603,16 @@ figure cannot be reconstructed from a window at all.
 
 The balance endpoint also reports `reserved_usd`, `threshold_usd` and
 `recharge_amount_usd`. The app reads `available_usd`, which is what the account
-can actually spend after reservations.
+can actually spend after reservations, and `threshold_usd`, which becomes this
+provider's default low threshold unless one was set by hand.
+`recharge_amount_usd` is still unread: how much a top-up adds is interesting, but
+nothing in the app acts on it.
 
 ## Open questions
 
-- Poll interval, default 30 minutes. Some providers rate-limit balance checks,
-  so it may need to be per provider rather than global.
-- What counts as "low"? A raw USD threshold is the simplest thing that works.
+- What counts as "low"? A raw USD threshold is the simplest thing that works,
+  and a provider that publishes its own now supersedes it per provider.
   A percentage of the last top-up would need top-up history, which is not stored.
-- Linux tray support varies by desktop environment. Deal with it at step 4.
 
 ## Known gaps
 
@@ -560,7 +621,10 @@ can actually spend after reservations.
   once that build is cleaned. It writes the right path when the app is installed;
   treat it as untrustworthy until packaging exists.
 - "Remove a provider" removes the keychain entry but not an environment
-  variable, so a provider can stay configured after being removed.
+  variable. The keychain entry is the app's to delete; a variable in the
+  environment it inherited is not, so a provider can stay configured after its
+  key was removed. Both the CLI and the dashboard now say so and name the
+  variable, rather than letting the removal look like it silently failed.
 - In a `tauri dev` run a toast is attributed to whatever launched the app and
   shows "Windows PowerShell" rather than "Meterix", because an unpackaged process
   has no registered AppUserModelID. The copy and the icon are correct; the
@@ -577,16 +641,13 @@ can actually spend after reservations.
   compiled in, that is all it can mean until providers are data.
 - A headless or minimal Linux install may have no Secret Service, so `keyring`
   will fail. Cross-platform is not free on that leg.
-- Schema migrations are `PRAGMA table_info` plus `ALTER TABLE`. Fine for a
-  handful. Move to a `PRAGMA user_version` ladder once there are three or more.
 - Installers cannot be built in this environment. `npm run tauri build` gets
   through the Rust build and the frontend bundling, then fails downloading NSIS
   3.11 with `timeout: global`, and nothing is produced. Needs a network where
   github.com is reachable, or a proxy in `HTTPS_PROXY`. The config is fine; this
   is the machine.
-- The tray popover's webview is built at startup and kept alive whether or not it
-  is ever opened, so every session carries a second renderer. Lazy creation would
-  fix it. Cost not measured.
+- The tray popover is built on the first tray click, so the first click after
+  launch is slower than every later one. How much slower is not measured.
 - **A plain `cargo build --release` yields a dev-mode binary.** It loads `devUrl`
   and shows an Edge error page, with no JavaScript running at all. `tauri` decides
   this in `is_dev()`, which is `!cfg!(feature = "custom-protocol")`, and it is the
