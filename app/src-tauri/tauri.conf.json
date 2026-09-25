@@ -25,6 +25,7 @@
       {
         "label": "tray",
         "title": "Meterix",
+        "create": false,
         "width": 340,
         "height": 420,
         "resizable": false,

@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Button, Label, Pill, tones } from './components/ui'
 import type { SettingsView } from './lib/api'
 import * as api from './lib/api'
+import { localTime, shortDate } from './lib/format'
 
 /** The intervals the picker offers, in minutes. */
 const INTERVALS = [15, 30, 60, 360]
@@ -49,8 +50,11 @@ type Draft = {
   notifyLow: boolean
   notifyErrors: boolean
   autostart: boolean
-  /** Provider name to its own threshold text. Empty means the app default. */
+  /** Provider name to its own threshold text. Empty means no override: the
+   *  provider's own number where it publishes one, otherwise the app default. */
   providers: Record<string, string>
+  /** Provider name to its own interval in minutes. Empty means the app default. */
+  intervals: Record<string, string>
 }
 
 function draftOf(view: SettingsView): Draft {
@@ -64,6 +68,12 @@ function draftOf(view: SettingsView): Draft {
       view.providers.map((provider) => [
         provider.name,
         provider.lowBalanceThreshold?.toFixed(2) ?? '',
+      ]),
+    ),
+    intervals: Object.fromEntries(
+      view.providers.map((provider) => [
+        provider.name,
+        provider.pollIntervalMinutes?.toString() ?? '',
       ]),
     ),
   }
@@ -86,9 +96,17 @@ function differs(view: SettingsView, draft: Draft): boolean {
 
   return view.providers.some((provider) => {
     const text = draft.providers[provider.name] ?? ''
-    return provider.lowBalanceThreshold === null
-      ? text.trim() !== ''
-      : !sameNumber(text, provider.lowBalanceThreshold)
+    if (
+      provider.lowBalanceThreshold === null
+        ? text.trim() !== ''
+        : !sameNumber(text, provider.lowBalanceThreshold)
+    ) {
+      return true
+    }
+
+    const minutes = (draft.intervals[provider.name] ?? '').trim()
+    const stored = provider.pollIntervalMinutes
+    return stored === null ? minutes !== '' : minutes !== String(stored)
   })
 }
 
@@ -104,6 +122,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
   const [settings, setSettings] = useState<SettingsView | null>(null)
   const [draft, setDraft] = useState<Draft | null>(null)
   const [problem, setProblem] = useState<string | null>(null)
+  const [exported, setExported] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
 
   const load = useCallback(async () => {
@@ -131,6 +150,21 @@ export function Settings({ onClose }: { onClose: () => void }) {
     )
   }
 
+  function editInterval(name: string, text: string) {
+    setDraft((current) =>
+      current ? { ...current, intervals: { ...current.intervals, [name]: text } } : current,
+    )
+  }
+
+  async function exportCsv() {
+    try {
+      setExported(await api.exportHistory())
+      setProblem(null)
+    } catch (error) {
+      setProblem(String(error))
+    }
+  }
+
   async function save() {
     if (!settings || !draft) return
 
@@ -143,24 +177,46 @@ export function Settings({ onClose }: { onClose: () => void }) {
     // Collected and checked first, so one bad row cannot leave the form half
     // written.
     const overrides: { name: string; value: number | null }[] = []
+    const intervalOverrides: { name: string; minutes: number | null }[] = []
 
     for (const provider of settings.providers) {
       const text = (draft.providers[provider.name] ?? '').trim()
       const stored = provider.lowBalanceThreshold
 
       if (text === '') {
-        // Blank means "use the app default", which is not a threshold of zero.
+        // Blank clears the override, which is not a threshold of zero.
         if (stored !== null) overrides.push({ name: provider.name, value: null })
+      } else {
+        const parsed = Number.parseFloat(text)
+        if (!Number.isFinite(parsed) || parsed < 0) {
+          setProblem(`${provider.displayName}: enter a number of dollars, zero or more`)
+          return
+        }
+
+        if (parsed !== stored) overrides.push({ name: provider.name, value: parsed })
+      }
+
+      const minutesText = (draft.intervals[provider.name] ?? '').trim()
+      const storedMinutes = provider.pollIntervalMinutes
+
+      if (minutesText === '') {
+        if (storedMinutes !== null) {
+          intervalOverrides.push({ name: provider.name, minutes: null })
+        }
         continue
       }
 
-      const parsed = Number.parseFloat(text)
-      if (!Number.isFinite(parsed) || parsed < 0) {
-        setProblem(`${provider.displayName}: enter a number of dollars, zero or more`)
+      const minutes = Number(minutesText)
+      // Whole minutes and at least one: the poller checks on a beat, and a zero
+      // here would mean a fetch every beat against a paid endpoint.
+      if (!Number.isInteger(minutes) || minutes < 1) {
+        setProblem(`${provider.displayName}: enter whole minutes, one or more`)
         return
       }
 
-      if (parsed !== stored) overrides.push({ name: provider.name, value: parsed })
+      if (minutes !== storedMinutes) {
+        intervalOverrides.push({ name: provider.name, minutes })
+      }
     }
 
     setSaving(true)
@@ -177,6 +233,10 @@ export function Settings({ onClose }: { onClose: () => void }) {
 
       for (const override of overrides) {
         await api.setProviderThreshold(override.name, override.value)
+      }
+
+      for (const override of intervalOverrides) {
+        await api.setProviderInterval(override.name, override.minutes)
       }
 
       await load()
@@ -215,7 +275,8 @@ export function Settings({ onClose }: { onClose: () => void }) {
             <div>
               <div className="text-[12px]">Check balances every</div>
               <div className="num mt-1 text-[11px] text-ink-muted">
-                Applied to every provider. Shorter intervals mean more requests to each one.
+                Applied to every provider without an interval of its own. Shorter intervals mean
+                more requests to each one.
               </div>
             </div>
             <div className="flex shrink-0 rounded-lg border border-line-strong bg-inset p-0.5">
@@ -258,7 +319,8 @@ export function Settings({ onClose }: { onClose: () => void }) {
             <div>
               <div className="text-[12px]">Default low balance</div>
               <div className="num mt-1 text-[11px] text-ink-muted">
-                Used for any provider without its own. Turns the tray amber.
+                Used for a provider that has no threshold of its own and publishes none. Turns
+                the tray amber.
               </div>
             </div>
             <div className="flex shrink-0 items-center gap-2 rounded-lg border border-line bg-inset px-3 py-2">
@@ -316,24 +378,52 @@ export function Settings({ onClose }: { onClose: () => void }) {
           </div>
         ) : (
           <div className="mt-3 border-y border-line">
-            <div className="grid grid-cols-[1.4fr_1.1fr_0.9fr] gap-3 border-b border-line pb-2 pt-2.5">
+            <div className="grid grid-cols-[1.2fr_1fr_0.6fr_0.7fr_0.8fr] gap-3 border-b border-line pb-2 pt-2.5">
               <span className="label-sm text-ink-muted">Provider</span>
               <span className="label-sm text-ink-muted">Key</span>
+              <span className="label-sm text-right text-ink-muted">Since</span>
+              <span className="label-sm text-right text-ink-muted">Every</span>
               <span className="label-sm text-right text-ink-muted">Low at</span>
             </div>
 
             {settings.providers.map((provider) => (
               <div
                 key={provider.name}
-                className="grid grid-cols-[1.4fr_1.1fr_0.9fr] items-center gap-3 border-b border-line/60 py-2.5 last:border-b-0"
+                className="grid grid-cols-[1.2fr_1fr_0.6fr_0.7fr_0.8fr] items-center gap-3 border-b border-line/60 py-2.5 last:border-b-0"
               >
                 <span className="num text-[12px]">{provider.displayName}</span>
                 <span className="num truncate text-[11px] text-ink-dim">{provider.keyHint}</span>
+                {/* The earliest reading, not when the key was saved: it is the
+                    date the database can actually back up. */}
+                <span
+                  className="num text-right text-[11px] text-ink-dim"
+                  title={
+                    provider.firstReadingAt === null
+                      ? 'No readings stored yet'
+                      : `Tracking since ${localTime(provider.firstReadingAt)}`
+                  }
+                >
+                  {shortDate(provider.firstReadingAt)}
+                </span>
+                {/* Minutes, because the interval is what a rate-limited
+                    provider needs raised without slowing the others down. */}
+                <div className="flex items-center justify-end gap-1">
+                  <input
+                    value={draft.intervals[provider.name] ?? ''}
+                    placeholder={String(draft.interval)}
+                    onChange={(event) => editInterval(provider.name, event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') void save()
+                    }}
+                    className="num w-[44px] rounded-md border border-line bg-inset px-1.5 py-1 text-right text-[12px] text-ink outline-none placeholder:text-ink-muted"
+                  />
+                  <span className="label text-ink-muted">m</span>
+                </div>
                 <div className="flex items-center justify-end gap-1.5">
                   <span className="label text-ink-muted">$</span>
                   <input
                     value={draft.providers[provider.name] ?? ''}
-                    placeholder={draft.threshold}
+                    placeholder={provider.fallbackThreshold.toFixed(2)}
                     onChange={(event) => editProvider(provider.name, event.target.value)}
                     onKeyDown={(event) => {
                       if (event.key === 'Enter') void save()
@@ -346,7 +436,10 @@ export function Settings({ onClose }: { onClose: () => void }) {
 
             <div className="border-t border-line py-2">
               <span className="num text-[11px] text-ink-muted">
-                Leave a provider blank to use the default. Its placeholder shows what that is.
+                Leave a provider blank to use its own default. Each placeholder shows what
+                that is: the balance the provider itself calls low, or the default above for a
+                provider that publishes none. An empty interval follows the polling default
+                above, and the poller wakes every 30 seconds to check what is due.
               </span>
             </div>
           </div>
@@ -392,6 +485,20 @@ export function Settings({ onClose }: { onClose: () => void }) {
               onClick={() => void navigator.clipboard.writeText(settings.databasePath)}
             >
               Copy path
+            </Button>
+          </div>
+
+          <div className="flex items-start justify-between gap-8 py-3">
+            <div className="min-w-0">
+              <div className="text-[12px]">Reading history</div>
+              {/* The path replaces the explanation once there is one, so the row
+                  says where the file went rather than what the button does. */}
+              <div className="num mt-1 truncate text-[11px] text-ink-muted">
+                {exported ?? 'Every stored reading as CSV, written beside the database.'}
+              </div>
+            </div>
+            <Button variant="secondary" className="shrink-0" onClick={() => void exportCsv()}>
+              Export CSV
             </Button>
           </div>
         </div>

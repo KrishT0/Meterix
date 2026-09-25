@@ -37,6 +37,12 @@ export function localTime(value: string | null): string {
   return parseUtc(value).toLocaleString()
 }
 
+/** "23 Sep" for a date shown beside other per-provider facts, or an em dash. */
+export function shortDate(value: string | null | undefined): string {
+  if (!value) return '\u2014'
+  return parseUtc(value).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })
+}
+
 export function daySeconds(value: string | null): number {
   if (!value) return 0
   return parseUtc(value).getTime() / 1000

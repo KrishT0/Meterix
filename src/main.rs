@@ -9,11 +9,30 @@ use std::env;
 use anyhow::{Context, Result, anyhow};
 
 use meterix_core::{
-    Balance, PROVIDERS, SaveOutcome, display_name, fetch_balances, forget_key, history,
-    open_database, save_snapshot, save_verified_key,
+    Balance, PROVIDERS, SaveOutcome, display_name, fetch_balances, forget_key, history, history_csv,
+    open_database, requested_providers, save_snapshot, save_verified_key,
 };
 
 const DEFAULT_HISTORY_LIMIT: usize = 20;
+
+const USAGE: &str = "\
+meterix-core — how much credit is left with each LLM provider
+
+usage
+  meterix-core [fetch [provider]]        read every provider, store a reading
+  meterix-core history <provider> [n]    the last n readings, 20 by default
+  meterix-core export [provider]         every reading as CSV, on standard output
+  meterix-core set-key <provider> <key>  verify a key, then store it
+  meterix-core forget-key <provider>     remove the stored key
+  meterix-core help                      show this
+
+A key comes from the OS keychain first and the provider's environment variable
+second, so the keychain always wins. `fetch` with no provider covers all of
+them, and one failing does not stop the others.";
+
+fn print_help() {
+    println!("{USAGE}\n\nproviders\n  {}", PROVIDERS.join(", "));
+}
 
 fn money(value: Option<f64>) -> String {
     value.map_or_else(|| "-".to_string(), |value| format!("${value:.2}"))
@@ -118,9 +137,21 @@ fn window(days: Option<u32>) -> String {
 #[tokio::main]
 async fn main() -> Result<()> {
     let args: Vec<String> = env::args().collect();
+
+    // A help flag anywhere answers with usage. Without this, `fetch --help`
+    // reads "--help" as a provider name and reports it as unknown.
+    if args.iter().skip(1).any(|arg| arg == "-h" || arg == "--help") {
+        print_help();
+        return Ok(());
+    }
+
     let command = args.get(1).map(String::as_str).unwrap_or("fetch");
 
     match command {
+        "help" => {
+            print_help();
+            Ok(())
+        }
         "set-key" => {
             let provider = args
                 .get(2)
@@ -131,14 +162,37 @@ async fn main() -> Result<()> {
 
             set_key(provider, key).await
         }
+        "export" => {
+            let only = args.get(2).map(String::as_str);
+
+            // Checked rather than filtered: a typo would otherwise write a file
+            // with a header and nothing under it, which reads as "this provider
+            // has no history" rather than as a mistake.
+            if let Some(name) = only {
+                requested_providers(Some(name))?;
+            }
+
+            let connection = open_database()?;
+            print!("{}", history_csv(&connection, only)?);
+
+            Ok(())
+        }
         "fetch" => fetch(args.get(2).map(String::as_str)).await,
         "forget-key" => {
             let provider = args
                 .get(2)
                 .context("usage: meterix-core forget-key <provider>")?;
 
-            forget_key(provider)?;
-            println!("key removed from the OS keychain");
+            match forget_key(provider)? {
+                Some(env_name) => println!(
+                    "key removed from the OS keychain, but {env_name} is set and still supplies \
+                     one, so {} stays configured. Unset it to finish the job: the app cannot \
+                     change the environment it was launched from.",
+                    display_name(provider)
+                ),
+                None => println!("key removed from the OS keychain"),
+            }
+
             Ok(())
         }
         "history" => {
@@ -153,10 +207,7 @@ async fn main() -> Result<()> {
             show_history(provider, limit)
         }
         _ => Err(anyhow!(
-            "unknown command: {command}\n\
-             usage: meterix-core [fetch [provider] | history <provider> [limit] | set-key <provider> <key> | forget-key <provider>]\n\
-             providers: {}",
-            PROVIDERS.join(", ")
+            "unknown command: {command}\nrun `meterix-core --help` for the commands and providers"
         )),
     }
 }

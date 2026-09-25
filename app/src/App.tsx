@@ -60,6 +60,9 @@ export default function App() {
   const [outcomes, setOutcomes] = useState<Record<string, RefreshOutcome>>({})
   const [readings, setReadings] = useState<Record<string, SnapshotRow[]>>({})
   const [fatal, setFatal] = useState<string | null>(null)
+  // Set when a key was removed from the keychain but the provider is still
+  // configured from the environment, which the app cannot change for the user.
+  const [removalNote, setRemovalNote] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [saving, setSaving] = useState(false)
   const [saveResult, setSaveResult] = useState<SaveKeyOutcome | null>(null)
@@ -226,6 +229,9 @@ export default function App() {
 
       setKeyDraft('')
       setFatal(null)
+      // A key was just stored, so whatever a removal left in the environment is
+      // no longer what this provider is using.
+      setRemovalNote(null)
       await refreshAll()
     } catch (error) {
       setFatal(String(error))
@@ -241,7 +247,17 @@ export default function App() {
     setRemoving(null)
     setBusy(true)
     try {
-      await api.removeProvider(name)
+      // The keychain entry is ours to delete; a variable in the environment the
+      // app inherited is not, so a provider can survive its own removal.
+      const envName = await api.removeProvider(name)
+      const label = overview.find((row) => row.name === name)?.displayName ?? name
+
+      setRemovalNote(
+        envName
+          ? `${envName} is set in this environment and still supplies a key, so ${label} stays on the list. Unset the variable to remove it for good.`
+          : null,
+      )
+
       setOutcomes((prev) =>
         Object.fromEntries(Object.entries(prev).filter(([key]) => key !== name)),
       )
@@ -337,12 +353,23 @@ export default function App() {
       </header>
 
       <div className="flex-1 p-4">
-        {fatal || failed.length > 0 ? (
+        {fatal || failed.length > 0 || removalNote ? (
           <div className="space-y-4">
             {fatal ? (
               <div className="rounded-lg border border-copper-dim/40 bg-copper-tint px-3.5 py-2.5">
                 <span className="label-sm text-copper">Could not reach the core</span>
                 <p className="num mt-1 text-[11px] text-ink-dim">{fatal}</p>
+              </div>
+            ) : null}
+
+            {/* Amber rather than copper: the removal did work, it just could not
+                be the whole story, and the fix is a command outside the app. */}
+            {removalNote ? (
+              <div className="rounded-lg border border-amber-line bg-panel px-3.5 py-2.5">
+                <span className="label-sm text-amber-dim">
+                  Key removed, provider still configured
+                </span>
+                <p className="num mt-1 text-[11px] text-ink-dim">{removalNote}</p>
               </div>
             ) : null}
 
@@ -368,7 +395,7 @@ export default function App() {
           spacing made the summary, the cards, the chart and the table read as a
           single block.
         */}
-        <div className={`space-y-4 ${fatal || failed.length > 0 ? 'mt-10' : ''}`}>
+        <div className={`space-y-4 ${fatal || failed.length > 0 || removalNote ? 'mt-10' : ''}`}>
           <div className="flex items-start gap-8">
             <div>
               <Label className="text-ink-muted">Total balance</Label>

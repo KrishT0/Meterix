@@ -67,8 +67,22 @@ export interface SettingsView {
 export interface ProviderSetting {
   name: string
   displayName: string
-  /** `null` when this provider uses the app default. */
+  /** `null` when this provider has no threshold of its own. */
   lowBalanceThreshold: number | null
+  /**
+   * What applies when this provider's box is left blank: the provider's own
+   * published threshold where it has one, otherwise the app default. Shown as
+   * the placeholder, so a blank box cannot mean something different here than
+   * it does at poll time.
+   */
+  fallbackThreshold: number
+  /**
+   * The earliest reading stored for this provider, so "since" is a fact rather
+   * than a note taken when the row was first written. `null` until it has one.
+   */
+  firstReadingAt: string | null
+  /** `null` when this provider uses the app-wide interval. */
+  pollIntervalMinutes: number | null
   keyHint: string
 }
 
@@ -88,6 +102,19 @@ export const saveSettings = (settings: SettingsInput, autostart: boolean) =>
 /** `null` clears the override and puts the provider back on the app default. */
 export const setProviderThreshold = (provider: string, threshold: number | null) =>
   invoke<void>('set_provider_threshold', { provider, threshold })
+
+/** `null` puts the provider back on the app-wide interval. */
+export const setProviderInterval = (provider: string, minutes: number | null) =>
+  invoke<void>('set_provider_interval', { provider, minutes })
+
+/**
+ * Write the reading history out as CSV, in the folder the database lives in.
+ *
+ * Resolves with the path written. The file is derived from the database, so
+ * calling this again replaces it rather than leaving copies to accumulate.
+ */
+export const exportHistory = (provider?: string) =>
+  invoke<string>('export_history', { provider: provider ?? null })
 
 /** What happened when a key was offered for saving. */
 export interface SaveKeyOutcome {
@@ -122,5 +149,13 @@ export const snapshotHistory = (provider: string, limit: number) =>
 export const setKey = (provider: string, key: string) =>
   invoke<SaveKeyOutcome>('set_key', { provider, key })
 
+/**
+ * Remove a stored key.
+ *
+ * Resolves with the environment variable still supplying a key, if one is. The
+ * keychain entry is the app's to delete; the caller's environment is not, so a
+ * provider can stay configured after its key was removed, and the window needs
+ * to be able to say so.
+ */
 export const removeProvider = (provider: string) =>
-  invoke<void>('remove_provider', { provider })
+  invoke<string | null>('remove_provider', { provider })

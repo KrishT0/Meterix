@@ -6,7 +6,7 @@
 //!
 //! API keys go to the OS keychain and never into the database.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::env;
 use std::error::Error;
 use std::fmt;
@@ -105,6 +105,11 @@ pub struct Balance {
     /// OpenRouter reports it. `Some(n)` means the last n days, which is the
     /// only thing CheaperInference offers. Never add the two together.
     pub spend_window_days: Option<u32>,
+    /// The provider's own idea of "low", when it publishes one. Recorded
+    /// alongside the reading for the same reason `basis` is: a number is only
+    /// usable next to what it means, and the tray and the notifier resolve a
+    /// threshold from stored state rather than by re-fetching.
+    pub provider_threshold: Option<f64>,
     /// Which credential produced this. See [`key_fingerprint`].
     pub key_fingerprint: Option<String>,
 }
@@ -119,6 +124,9 @@ pub struct Snapshot {
     pub usage: Option<f64>,
     pub spend_window_days: Option<u32>,
     pub remaining: f64,
+    /// The provider's own low threshold as of this reading, or `None` when it
+    /// published none.
+    pub provider_threshold: Option<f64>,
     /// Which credential produced this reading, or `None` for rows written
     /// before fingerprints existed.
     pub key_fingerprint: Option<String>,
@@ -345,6 +353,8 @@ fn openrouter_balance(
         usage: key_info.usage,
         // OpenRouter's usage is a running total, not a window.
         spend_window_days: None,
+        // OpenRouter publishes no threshold of its own.
+        provider_threshold: None,
         // Filled in by the caller, which is where the key is known.
         key_fingerprint: None,
     })
@@ -394,6 +404,12 @@ const CHEAPER_INFERENCE_USAGE_URL: &str =
 struct CheaperInferenceResponse {
     /// What the account can actually spend, after anything reserved.
     available_usd: f64,
+    /// The balance this account auto-recharges at. This is the provider's own
+    /// answer to "when am I running low", so it is a better default than a flat
+    /// dollar figure that knows nothing about the account. Advisory, so a
+    /// missing or null field means "no opinion" rather than a failed reading.
+    #[serde(default)]
+    threshold_usd: Option<f64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -437,6 +453,7 @@ impl Provider for CheaperInference {
             account_credits: Some(response.available_usd),
             usage: spend.as_ref().map(|usage| usage.billed_usd),
             spend_window_days: spend.map(|usage| usage.days),
+            provider_threshold: response.threshold_usd,
             // Filled in by the caller, which is where the key is known.
             key_fingerprint: None,
         })
@@ -706,6 +723,15 @@ fn credential(provider: &str, env_name: &str) -> Result<String, ProviderError> {
     env::var(env_name).map_err(|_| ProviderError::MissingCredential(provider.to_string()))
 }
 
+/// The environment variable still supplying a key for this provider, if one is.
+///
+/// The environment is read on its own, so this only means anything once the
+/// keychain entry is gone: it answers "would a fetch find a key now".
+fn env_credential(provider: &str) -> Option<&'static str> {
+    let name = env_var(provider)?;
+    env::var(name).ok().map(|_| name)
+}
+
 fn build_provider(
     name: &str,
     client: &Client,
@@ -729,17 +755,32 @@ pub type Outcome = (&'static str, Result<Balance, ProviderError>);
 /// The outer `Result` is only for a bad argument. Per-provider failures come
 /// back inside the vector so callers decide what to do about them.
 pub async fn fetch_balances(only: Option<&str>) -> Result<Vec<Outcome>> {
-    let names: Vec<&'static str> = match only {
-        Some(name) => vec![
+    fetch_selected(&requested_providers(only)?).await
+}
+
+/// The providers a request covers: the one named, or every provider.
+///
+/// An unknown name is an error rather than an empty fetch, so a typo cannot look
+/// like "there was nothing to do".
+pub fn requested_providers(only: Option<&str>) -> Result<Vec<&'static str>> {
+    match only {
+        Some(name) => Ok(vec![
             PROVIDERS
                 .iter()
                 .copied()
                 .find(|provider| *provider == name)
                 .ok_or_else(|| anyhow!("unknown provider: {name}; use {}", PROVIDERS.join(", ")))?,
-        ],
-        None => PROVIDERS.to_vec(),
-    };
+        ]),
+        None => Ok(PROVIDERS.to_vec()),
+    }
+}
 
+/// Fetch an explicit set of providers, in the order given.
+///
+/// `fetch_balances` is this with the set worked out from the command line; the
+/// poller is this with the set decided by which intervals have elapsed. Both end
+/// up here so the ordering and the fingerprint handling cannot drift apart.
+pub async fn fetch_selected(names: &[&'static str]) -> Result<Vec<Outcome>> {
     // ponytail: panics on a broken TLS setup rather than returning an error;
     // switch to Client::builder().build()? if that ever matters.
     let client = Client::new();
@@ -756,7 +797,7 @@ pub async fn fetch_balances(only: Option<&str>) -> Result<Vec<Outcome>> {
             },
             Err(error) => Err(error),
         };
-        outcomes.push((name, result));
+        outcomes.push((*name, result));
     }
 
     Ok(outcomes)
@@ -819,27 +860,151 @@ fn column_exists(connection: &Connection, table: &str, column: &str) -> Result<b
     Ok(false)
 }
 
-fn add_column_if_missing(
-    connection: &Connection,
-    table: &str,
-    column: &str,
-    definition: &str,
-) -> Result<()> {
-    if column_exists(connection, table, column)? {
-        return Ok(());
+/// The schema this build writes, recorded in `PRAGMA user_version`.
+///
+/// Raise this and add a step to `migrate` whenever a column changes. A step added
+/// without raising the version never runs, which is the one failure this
+/// arrangement can produce — `every_step_of_the_ladder_is_reachable` is there to
+/// catch it.
+const SCHEMA_VERSION: i32 = 5;
+
+fn schema_version(connection: &Connection) -> Result<i32> {
+    Ok(connection.query_row("PRAGMA user_version", [], |row| row.get(0))?)
+}
+
+fn set_schema_version(connection: &Connection, version: i32) -> Result<()> {
+    // `PRAGMA user_version = ?` takes no bound parameter, so the number is
+    // formatted in. It is an i32 this file chose, never anything from outside.
+    connection.execute_batch(&format!("PRAGMA user_version = {version}"))?;
+
+    Ok(())
+}
+
+/// The version an unversioned database has already reached.
+///
+/// Databases written before the version existed report 0 however far they have
+/// actually come, because the column-sniffing code this replaced left no record.
+/// So the shape is inspected here, once, and the answer is written down — after
+/// that the version decides and nothing looks at columns again.
+fn adopt_version(connection: &Connection) -> Result<i32> {
+    // The last thing each version added, newest first, so the newest marker found
+    // is the version the database is at.
+    const MARKERS: [(i32, &str, &str); 5] = [
+        (5, "providers", "last_attempt_at"),
+        (4, "balance_snapshots", "provider_threshold_usd"),
+        (3, "providers", "notified_error_kind"),
+        (2, "balance_snapshots", "spend_window_days"),
+        (1, "balance_snapshots", "key_fingerprint"),
+    ];
+
+    for (version, table, column) in MARKERS {
+        if column_exists(connection, table, column)? {
+            return Ok(version);
+        }
     }
 
-    // ponytail: column sniffing plus ALTER carries a handful of migrations.
-    // Move to a PRAGMA user_version ladder once there are three or more.
-    connection.execute(
-        &format!("ALTER TABLE {table} ADD COLUMN {column} {definition}"),
-        [],
-    )?;
+    Ok(0)
+}
+
+fn add_column(connection: &Connection, table: &str, column: &str, definition: &str) -> Result<()> {
+    connection
+        .execute(
+            &format!("ALTER TABLE {table} ADD COLUMN {column} {definition}"),
+            [],
+        )
+        .with_context(|| format!("could not add {table}.{column}"))?;
+
+    Ok(())
+}
+
+/// Apply every step between `from` and the current version, in order.
+///
+/// Plain `ALTER`s rather than "add if missing" checks: once the version is
+/// recorded it is the authority, so a step that cannot run is a real problem and
+/// should say so rather than quietly pass.
+fn migrate(connection: &Connection, from: i32) -> Result<()> {
+    if from < 1 {
+        // `basis` is what a remaining figure means: account credits, a key cap, or
+        // spend. Without it a spend number was shown as money left.
+        add_column(
+            connection,
+            "balance_snapshots",
+            "basis",
+            "TEXT NOT NULL DEFAULT 'usage'",
+        )?;
+        add_column(connection, "balance_snapshots", "key_fingerprint", "TEXT")?;
+
+        // Rows written before `basis` existed. Account credits identify
+        // themselves; everything else was either spend or a cap, and the two
+        // cannot be told apart after the fact, so it keeps the label that claims
+        // the least.
+        connection.execute(
+            "UPDATE balance_snapshots SET basis = 'account_credits' \
+             WHERE basis = 'usage' AND account_credits IS NOT NULL",
+            [],
+        )?;
+    }
+
+    if from < 2 {
+        // How many days a spend figure covers. CheaperInference's is always a
+        // window and OpenRouter's is all-time, so the window travels with the
+        // number: adding the two together would be meaningless.
+        add_column(
+            connection,
+            "balance_snapshots",
+            "spend_window_days",
+            "INTEGER",
+        )?;
+    }
+
+    if from < 3 {
+        // Nullable, and null is the normal case: the provider's own threshold
+        // where it publishes one, and the app default otherwise. Zero would mean
+        // "never warn me", which is a different thing.
+        add_column(connection, "providers", "low_balance_threshold", "REAL")?;
+        // What the user was last told, so a notification is an edge rather than a
+        // state. Zero rather than null deliberately: a provider already under its
+        // threshold when the app first looks at it is news, and an initial
+        // "unknown" would mean the crossing never happens and a fresh install
+        // says nothing about a balance that was already low.
+        add_column(
+            connection,
+            "providers",
+            "notified_below",
+            "INTEGER NOT NULL DEFAULT 0",
+        )?;
+        add_column(connection, "providers", "notified_error_kind", "TEXT")?;
+    }
+
+    if from < 4 {
+        // What the provider itself called low at the time of the reading.
+        add_column(
+            connection,
+            "balance_snapshots",
+            "provider_threshold_usd",
+            "REAL",
+        )?;
+    }
+
+    if from < 5 {
+        // How often this provider alone is checked, and when it was last asked.
+        // The second has to be stored rather than held in memory: the poller
+        // restarts with the app, and "is this due" must not reset on every
+        // launch. It stays apart from `balance_snapshots.recorded_at`, which says
+        // when a reading was stored and would be a different thing if a failed
+        // check moved it.
+        add_column(connection, "providers", "poll_interval_minutes", "INTEGER")?;
+        add_column(connection, "providers", "last_attempt_at", "TEXT")?;
+    }
 
     Ok(())
 }
 
 fn initialize_database(connection: &Connection) -> Result<()> {
+    // Deliberately the *original* schema, not the current one. Every column added
+    // since lives in the ladder below, so a fresh database and a migrated one
+    // walk the same steps and cannot drift apart. Put a new column here as well
+    // and adoption would mistake a brand new file for a part-migrated one.
     connection.execute_batch(
         "
         CREATE TABLE IF NOT EXISTS providers (
@@ -856,57 +1021,33 @@ fn initialize_database(connection: &Connection) -> Result<()> {
             id INTEGER PRIMARY KEY,
             provider_id INTEGER NOT NULL REFERENCES providers(id),
             remaining REAL NOT NULL,
-            basis TEXT NOT NULL,
             account_credits REAL,
             usage REAL,
-            spend_window_days INTEGER,
             recorded_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         );
         ",
     )?;
 
-    add_column_if_missing(connection, "balance_snapshots", "account_credits", "REAL")?;
-    add_column_if_missing(connection, "balance_snapshots", "usage", "REAL")?;
-    add_column_if_missing(connection, "balance_snapshots", "key_fingerprint", "TEXT")?;
-    add_column_if_missing(
-        connection,
-        "balance_snapshots",
-        "spend_window_days",
-        "INTEGER",
-    )?;
-    // Null means "use the app default", which is not the same as a threshold of
-    // zero and must not be confused with one.
-    add_column_if_missing(connection, "providers", "low_balance_threshold", "REAL")?;
-    // What the user was last told, so an edge is only reported once. Zero rather
-    // than null for the below flag, deliberately: a provider that is already
-    // under its threshold the first time the app looks at it is news, and if the
-    // initial state were "unknown" the crossing would never happen and a fresh
-    // install would say nothing at all about a balance that was already low.
-    add_column_if_missing(
-        connection,
-        "providers",
-        "notified_below",
-        "INTEGER NOT NULL DEFAULT 0",
-    )?;
-    add_column_if_missing(connection, "providers", "notified_error_kind", "TEXT")?;
+    // Zero means nobody recorded a version: either a database from before the
+    // version existed, which may be part way along, or a brand new one, which the
+    // CREATE above has just brought fully up to date. Ask the shape once, write
+    // the answer down, and let the version decide from then on.
+    let recorded = schema_version(connection)?;
 
-    if !column_exists(connection, "balance_snapshots", "basis")? {
-        add_column_if_missing(
-            connection,
-            "balance_snapshots",
-            "basis",
-            "TEXT NOT NULL DEFAULT 'usage'",
-        )?;
+    if recorded > SCHEMA_VERSION {
+        // A newer build has written this database. Change nothing and leave the
+        // number alone: every column this build knows about is present, and
+        // lowering the version would make the next upgrade re-run steps that have
+        // already happened.
+    } else {
+        let from = if recorded == 0 {
+            adopt_version(connection)?
+        } else {
+            recorded
+        };
 
-        // Rows written before `basis` existed. Account credits identify
-        // themselves; everything else was either spend or a cap, and the two
-        // cannot be told apart after the fact, so it keeps the label that
-        // claims the least.
-        connection.execute(
-            "UPDATE balance_snapshots SET basis = 'account_credits' \
-             WHERE basis = 'usage' AND account_credits IS NOT NULL",
-            [],
-        )?;
+        migrate(connection, from)?;
+        set_schema_version(connection, SCHEMA_VERSION)?;
     }
 
     for provider in PROVIDERS {
@@ -924,8 +1065,8 @@ pub fn save_snapshot(connection: &Connection, balance: &Balance) -> Result<()> {
         "
         INSERT INTO balance_snapshots
             (provider_id, remaining, basis, account_credits, usage, spend_window_days,
-             key_fingerprint)
-        SELECT id, ?1, ?2, ?3, ?4, ?5, ?6 FROM providers WHERE name = ?7
+             provider_threshold_usd, key_fingerprint)
+        SELECT id, ?1, ?2, ?3, ?4, ?5, ?6, ?7 FROM providers WHERE name = ?8
         ",
         params![
             balance.remaining,
@@ -933,6 +1074,7 @@ pub fn save_snapshot(connection: &Connection, balance: &Balance) -> Result<()> {
             balance.account_credits,
             balance.usage,
             balance.spend_window_days,
+            balance.provider_threshold,
             balance.key_fingerprint,
             balance.provider
         ],
@@ -957,6 +1099,7 @@ pub fn history(connection: &Connection, provider: &str, limit: usize) -> Result<
                balance_snapshots.usage,
                balance_snapshots.spend_window_days,
                balance_snapshots.remaining,
+               balance_snapshots.provider_threshold_usd,
                balance_snapshots.key_fingerprint
         FROM balance_snapshots
         JOIN providers ON providers.id = balance_snapshots.provider_id
@@ -976,12 +1119,92 @@ pub fn history(connection: &Connection, provider: &str, limit: usize) -> Result<
             usage: row.get(3)?,
             spend_window_days: row.get(4)?,
             remaining: row.get(5)?,
-            key_fingerprint: row.get(6)?,
+            provider_threshold: row.get(6)?,
+            key_fingerprint: row.get(7)?,
         })
     })?;
 
     rows.collect::<rusqlite::Result<Vec<_>>>()
         .context("could not read balance history")
+}
+
+const CSV_HEADER: &str = "provider,recorded_at,basis,remaining,account_credits,usage,\
+spend_window_days,provider_threshold_usd,key_fingerprint";
+
+/// One CSV field, quoted only when it has to be.
+///
+/// Nothing written today contains a comma, but a provider with one in its display
+/// name would silently shift every later column by one, and a spreadsheet cannot
+/// tell that a column is wrong.
+fn csv_field(value: &str) -> String {
+    if value.contains([',', '"', '\n', '\r']) {
+        format!("\"{}\"", value.replace('"', "\"\""))
+    } else {
+        value.to_string()
+    }
+}
+
+fn csv_number(value: Option<f64>) -> String {
+    value.map_or_else(String::new, |value| value.to_string())
+}
+
+/// The reading history as CSV: one row per stored reading, oldest first.
+///
+/// `basis` and `spend_window_days` travel with every row deliberately. A spend
+/// figure is not money left, and a 90-day spend is not an all-time one, so an
+/// export that dropped them would hand someone a spreadsheet meaning the opposite
+/// of what it looks like — the same mistake those columns exist to prevent. The
+/// fingerprint is there for the same reason: without it, readings from two
+/// different accounts look like one continuous series.
+///
+/// `only` limits the export to one provider; `None` covers all of them. Oldest
+/// first, which is the order a spreadsheet wants, rather than the newest-first
+/// order `history` returns for display.
+pub fn history_csv(connection: &Connection, only: Option<&str>) -> Result<String> {
+    let mut statement = connection.prepare(
+        "SELECT providers.name,
+                balance_snapshots.recorded_at,
+                balance_snapshots.basis,
+                balance_snapshots.remaining,
+                balance_snapshots.account_credits,
+                balance_snapshots.usage,
+                balance_snapshots.spend_window_days,
+                balance_snapshots.provider_threshold_usd,
+                balance_snapshots.key_fingerprint
+         FROM balance_snapshots
+         JOIN providers ON providers.id = balance_snapshots.provider_id
+         WHERE ?1 IS NULL OR providers.name = ?1
+         ORDER BY balance_snapshots.recorded_at, balance_snapshots.id",
+    )?;
+
+    let rows = statement.query_map(params![only], |row| {
+        Ok([
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, String>(2)?,
+            row.get::<_, f64>(3)?.to_string(),
+            csv_number(row.get(4)?),
+            csv_number(row.get(5)?),
+            row.get::<_, Option<u32>>(6)?
+                .map_or_else(String::new, |days| days.to_string()),
+            csv_number(row.get(7)?),
+            row.get::<_, Option<String>>(8)?.unwrap_or_default(),
+        ])
+    })?;
+
+    let mut csv = String::from(CSV_HEADER);
+
+    for row in rows {
+        let row = row?;
+        csv.push('\n');
+        csv.push_str(&row.map(|field| csv_field(&field)).join(","));
+    }
+
+    // A trailing newline, so appending to the file later still starts on its own
+    // line.
+    csv.push('\n');
+
+    Ok(csv)
 }
 
 /// Store an API key in the OS keychain.
@@ -1023,7 +1246,12 @@ pub fn save_key(provider: &str, key: &str) -> Result<()> {
 /// reversible, and a database of readings is not something to drop because
 /// someone was tidying up their key list. Nothing reads a departed provider's
 /// history, so it costs a few rows to keep it.
-pub fn forget_key(provider: &str) -> Result<()> {
+///
+/// Returns the environment variable still supplying a key, if there is one. The
+/// keychain entry is ours to delete; a variable in the caller's environment is
+/// not, so removing the entry cannot on its own leave a provider unconfigured.
+/// Returning it is what stops a removal from looking like it silently failed.
+pub fn forget_key(provider: &str) -> Result<Option<&'static str>> {
     if !PROVIDERS.contains(&provider) {
         return Err(anyhow!(
             "unknown provider: {provider}; use {}",
@@ -1032,11 +1260,11 @@ pub fn forget_key(provider: &str) -> Result<()> {
     }
 
     let Ok(entry) = Entry::new(KEYRING_SERVICE, provider) else {
-        return Ok(());
+        return Ok(env_credential(provider));
     };
 
     match entry.delete_credential() {
-        Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+        Ok(()) | Err(keyring::Error::NoEntry) => Ok(env_credential(provider)),
         Err(error) => Err(error).context("could not remove the key from the OS keychain"),
     }
 }
@@ -1198,21 +1426,216 @@ pub fn set_provider_threshold(
     Ok(())
 }
 
-/// The threshold that applies to a provider: its own, or the app default.
+/// Each provider's own poll interval in minutes, `None` where it has not been
+/// overridden.
+pub fn provider_intervals(connection: &Connection) -> Result<Vec<(String, Option<u32>)>> {
+    let mut statement =
+        connection.prepare("SELECT name, poll_interval_minutes FROM providers ORDER BY id")?;
+
+    let rows = statement.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?;
+
+    rows.collect::<rusqlite::Result<Vec<_>>>()
+        .context("could not read provider intervals")
+}
+
+pub fn set_provider_interval(
+    connection: &Connection,
+    provider: &str,
+    minutes: Option<u32>,
+) -> Result<()> {
+    let changed = connection.execute(
+        "UPDATE providers SET poll_interval_minutes = ?1 WHERE name = ?2",
+        params![minutes, provider],
+    )?;
+
+    if changed == 0 {
+        return Err(anyhow!("no provider named {provider}"));
+    }
+
+    Ok(())
+}
+
+/// The interval that applies to a provider: its own, or the app default.
 ///
-/// The tray and the dashboard both go through this, so a provider cannot be low
-/// in one place and fine in the other.
-pub fn effective_threshold(settings: &Settings, provider: Option<f64>) -> f64 {
-    provider.unwrap_or(settings.low_balance_threshold)
+/// Clamped at one minute for the same reason the stored default is: zero would
+/// turn the poller into a spin loop against a paid API. A provider's own value
+/// reaches the poller through here, so this is the one place that has to hold.
+pub fn effective_interval(settings: &Settings, provider: Option<u32>) -> u32 {
+    provider.unwrap_or(settings.poll_interval_minutes).max(1)
+}
+
+/// Every provider's effective interval, already resolved against the default.
+pub fn resolved_intervals(connection: &Connection) -> Result<Vec<(String, u32)>> {
+    let settings = load_settings(connection)?;
+
+    Ok(provider_intervals(connection)?
+        .into_iter()
+        .map(|(name, own)| (name, effective_interval(&settings, own)))
+        .collect())
+}
+
+/// Providers whose own interval has elapsed since they were last asked.
+///
+/// The comparison happens in SQLite, which is where the interval lives and which
+/// already knows how to turn its own timestamps into epoch seconds. Doing it in
+/// Rust would mean adding a date library for one subtraction.
+///
+/// A provider that has never been asked is due, which is what makes a fresh
+/// install fetch without anyone pressing anything.
+pub fn due_providers(connection: &Connection) -> Result<Vec<&'static str>> {
+    let settings = load_settings(connection)?;
+
+    let mut statement = connection.prepare(
+        "SELECT name FROM providers
+         WHERE last_attempt_at IS NULL
+            OR strftime('%s', 'now') - strftime('%s', last_attempt_at)
+               >= COALESCE(poll_interval_minutes, ?1) * 60
+         ORDER BY id",
+    )?;
+
+    let named: HashSet<String> = statement
+        .query_map(params![settings.poll_interval_minutes], |row| row.get(0))?
+        .collect::<rusqlite::Result<Vec<String>>>()?
+        .into_iter()
+        .collect();
+
+    // In the app's own provider order rather than the query's, so a fetch covers
+    // providers in the order everything else uses.
+    Ok(PROVIDERS
+        .iter()
+        .copied()
+        .filter(|name| named.contains(*name))
+        .collect())
+}
+
+/// Record that these providers were just asked.
+///
+/// Written before the fetch, not after it, so a provider that fails backs off for
+/// its own interval instead of being retried on the next beat. A provider that is
+/// rate-limiting is the case that matters.
+pub fn record_attempts(connection: &Connection, providers: &[&str]) -> Result<()> {
+    for provider in providers {
+        connection.execute(
+            "UPDATE providers SET last_attempt_at = CURRENT_TIMESTAMP WHERE name = ?1",
+            params![provider],
+        )?;
+    }
+
+    Ok(())
+}
+
+/// When each provider was last asked, or `None` where it never has been.
+pub fn last_attempts(connection: &Connection) -> Result<Vec<(String, Option<String>)>> {
+    let mut statement =
+        connection.prepare("SELECT name, last_attempt_at FROM providers ORDER BY id")?;
+
+    let rows = statement.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?;
+
+    rows.collect::<rusqlite::Result<Vec<_>>>()
+        .context("could not read when each provider was last asked")
+}
+
+/// The threshold that applies to a provider.
+///
+/// The order is: the number the user set for this provider, then the number the
+/// provider publishes for itself, then the app-wide default. The middle step is
+/// what stops a flat $2 from overriding a provider that knows its own account
+/// better — CheaperInference says which balance it auto-recharges at.
+///
+/// The tray, the dashboard and the notifier all go through this, so a provider
+/// cannot be low in one place and fine in the other.
+pub fn effective_threshold(settings: &Settings, own: Option<f64>, reported: Option<f64>) -> f64 {
+    own.or(reported).unwrap_or(settings.low_balance_threshold)
+}
+
+/// When each provider's history starts, or `None` where it has no readings yet.
+///
+/// Derived from the snapshots rather than stored as a column on `providers`. The
+/// earliest reading is the fact the database actually holds; a timestamp written
+/// when the row was inserted would be a second, weaker copy of it, and it could
+/// say nothing at all about a provider that was already configured the first time
+/// the app ran — which is every existing install.
+pub fn first_reading_at(connection: &Connection) -> Result<Vec<(String, Option<String>)>> {
+    let mut statement = connection.prepare(
+        "SELECT providers.name, min(balance_snapshots.recorded_at)
+         FROM providers
+         LEFT JOIN balance_snapshots ON balance_snapshots.provider_id = providers.id
+         GROUP BY providers.id
+         ORDER BY providers.id",
+    )?;
+
+    let rows = statement.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?;
+
+    rows.collect::<rusqlite::Result<Vec<_>>>()
+        .context("could not read when each provider's history starts")
+}
+
+/// Each provider's own published threshold, as of its latest reading.
+///
+/// `None` where the provider has never reported one, or has stopped.
+///
+/// ponytail: this reads the newest reading regardless of which credential
+/// produced it, so a threshold belonging to a swapped-out account lingers until
+/// the next successful fetch replaces it. Filtering on the current fingerprint
+/// would put a keychain read inside a function the tests call, and one poll of
+/// staleness is not worth making those tests machine-dependent.
+pub fn reported_thresholds(connection: &Connection) -> Result<Vec<(String, Option<f64>)>> {
+    let mut statement = connection.prepare(
+        "SELECT providers.name,
+                (SELECT balance_snapshots.provider_threshold_usd
+                 FROM balance_snapshots
+                 WHERE balance_snapshots.provider_id = providers.id
+                 ORDER BY balance_snapshots.recorded_at DESC, balance_snapshots.id DESC
+                 LIMIT 1)
+         FROM providers
+         ORDER BY providers.id",
+    )?;
+
+    let rows = statement.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?;
+
+    rows.collect::<rusqlite::Result<Vec<_>>>()
+        .context("could not read provider thresholds")
+}
+
+/// A provider's threshold in the two halves the rule needs: what the user chose
+/// for it, and what the provider says about itself.
+type ThresholdRow = (String, Option<f64>, Option<f64>);
+
+fn threshold_rows(connection: &Connection) -> Result<Vec<ThresholdRow>> {
+    let reported: HashMap<String, Option<f64>> =
+        reported_thresholds(connection)?.into_iter().collect();
+
+    Ok(provider_thresholds(connection)?
+        .into_iter()
+        .map(|(name, own)| {
+            let reported = reported.get(&name).copied().flatten();
+            (name, own, reported)
+        })
+        .collect())
 }
 
 /// Every provider's effective threshold, already resolved against the default.
 pub fn resolved_thresholds(connection: &Connection) -> Result<Vec<(String, f64)>> {
     let settings = load_settings(connection)?;
 
-    Ok(provider_thresholds(connection)?
+    Ok(threshold_rows(connection)?
         .into_iter()
-        .map(|(name, own)| (name, effective_threshold(&settings, own)))
+        .map(|(name, own, reported)| (name, effective_threshold(&settings, own, reported)))
+        .collect())
+}
+
+/// The number that applies to each provider when it has no override of its own.
+///
+/// The settings screen shows this as the placeholder in a blank box, so that a
+/// blank box means in the form exactly what `effective_threshold` does at poll
+/// time. For CheaperInference that is its own auto-recharge threshold, which is
+/// not the app default.
+pub fn fallback_thresholds(connection: &Connection) -> Result<Vec<(String, f64)>> {
+    let settings = load_settings(connection)?;
+
+    Ok(threshold_rows(connection)?
+        .into_iter()
+        .map(|(name, _, reported)| (name, effective_threshold(&settings, None, reported)))
         .collect())
 }
 
@@ -1265,6 +1688,8 @@ pub fn take_notifications(
     // may have just changed a threshold and not saved it yet, and a notification
     // has to use the threshold the user is actually looking at.
     let own: HashMap<String, Option<f64>> = provider_thresholds(connection)?.into_iter().collect();
+    let reported: HashMap<String, Option<f64>> =
+        reported_thresholds(connection)?.into_iter().collect();
 
     let mut notices = Vec::new();
 
@@ -1287,7 +1712,11 @@ pub fn take_notifications(
 
         match result {
             Ok(balance) => {
-                let threshold = effective_threshold(settings, own.get(name).copied().flatten());
+                let threshold = effective_threshold(
+                    settings,
+                    own.get(name).copied().flatten(),
+                    reported.get(name).copied().flatten(),
+                );
 
                 // A spend figure is not money left, so comparing one to a
                 // threshold would warn about a number that means the opposite.
@@ -1363,6 +1792,7 @@ mod tests {
             account_credits: credits,
             usage,
             spend_window_days: None,
+            provider_threshold: None,
             key_fingerprint: None,
         }
     }
@@ -1711,6 +2141,7 @@ mod tests {
                 account_credits: Some(99.0),
                 usage: None,
                 spend_window_days: None,
+                provider_threshold: None,
                 key_fingerprint: None,
             },
         )
@@ -1784,6 +2215,131 @@ mod tests {
         // No credits recorded, so nothing could classify it as a balance.
         assert_eq!(rows[1].basis, Basis::Usage);
         assert!(!rows[1].basis.is_balance());
+    }
+
+    fn columns_of(connection: &Connection, table: &str) -> Vec<String> {
+        let mut statement = connection
+            .prepare(&format!("PRAGMA table_info({table})"))
+            .expect("table info");
+        let rows = statement
+            .query_map([], |row| row.get::<_, String>(1))
+            .expect("column names");
+
+        rows.collect::<rusqlite::Result<Vec<_>>>().expect("read")
+    }
+
+    /// A fresh database and one that walked the ladder from the original schema
+    /// have to end up identical, or one of the two paths is wrong. This is what
+    /// catches a column added to `CREATE TABLE` and forgotten in the ladder — or
+    /// the other way round, which is how a new file gets mistaken for a
+    /// part-migrated one.
+    #[test]
+    fn a_fresh_database_and_a_migrated_one_end_up_the_same() {
+        let migrated = Connection::open_in_memory().expect("in-memory");
+        migrated
+            .execute_batch(
+                "
+                CREATE TABLE providers (
+                    id INTEGER PRIMARY KEY,
+                    name TEXT NOT NULL UNIQUE
+                );
+                CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+                CREATE TABLE balance_snapshots (
+                    id INTEGER PRIMARY KEY,
+                    provider_id INTEGER NOT NULL REFERENCES providers(id),
+                    remaining REAL NOT NULL,
+                    account_credits REAL,
+                    usage REAL,
+                    recorded_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                );
+                ",
+            )
+            .expect("the original schema");
+        initialize_database(&migrated).expect("migrated");
+
+        let fresh = memory_database();
+
+        for table in ["providers", "settings", "balance_snapshots"] {
+            assert_eq!(
+                columns_of(&migrated, table),
+                columns_of(&fresh, table),
+                "{table} differs between a fresh database and a migrated one"
+            );
+        }
+
+        assert_eq!(schema_version(&migrated).expect("version"), SCHEMA_VERSION);
+        assert_eq!(schema_version(&fresh).expect("version"), SCHEMA_VERSION);
+    }
+
+    /// Every step is reachable from nothing, and lands on the current version
+    /// with the columns it promises. A step added without raising
+    /// `SCHEMA_VERSION` would leave its column missing here.
+    #[test]
+    fn every_step_of_the_ladder_is_reachable() {
+        let connection = memory_database();
+
+        assert_eq!(schema_version(&connection).expect("version"), SCHEMA_VERSION);
+
+        for (table, column) in [
+            ("balance_snapshots", "basis"),
+            ("balance_snapshots", "key_fingerprint"),
+            ("balance_snapshots", "spend_window_days"),
+            ("balance_snapshots", "provider_threshold_usd"),
+            ("providers", "low_balance_threshold"),
+            ("providers", "notified_below"),
+            ("providers", "notified_error_kind"),
+            ("providers", "poll_interval_minutes"),
+            ("providers", "last_attempt_at"),
+        ] {
+            assert!(
+                column_exists(&connection, table, column).expect("checked"),
+                "{table}.{column} is missing after the ladder ran"
+            );
+        }
+    }
+
+    /// An unversioned database that is already part way along is adopted at the
+    /// shape it has, not at zero. Without this every existing install would have
+    /// its migration steps re-run against columns that are already there.
+    #[test]
+    fn an_unversioned_database_is_adopted_at_the_shape_it_has() {
+        let connection = Connection::open_in_memory().expect("in-memory");
+        connection
+            .execute_batch(
+                "
+                CREATE TABLE providers (id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE);
+                CREATE TABLE balance_snapshots (
+                    id INTEGER PRIMARY KEY,
+                    provider_id INTEGER NOT NULL REFERENCES providers(id),
+                    remaining REAL NOT NULL,
+                    basis TEXT NOT NULL,
+                    account_credits REAL,
+                    usage REAL,
+                    key_fingerprint TEXT,
+                    recorded_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                );
+                ",
+            )
+            .expect("a version 1 shape");
+
+        assert_eq!(adopt_version(&connection).expect("adopted"), 1);
+
+        initialize_database(&connection).expect("migrated");
+        assert_eq!(schema_version(&connection).expect("version"), SCHEMA_VERSION);
+        // Only the steps after 1 ran, and they ran once.
+        assert!(column_exists(&connection, "providers", "last_attempt_at").expect("checked"));
+    }
+
+    /// A database a newer build has written is left alone. Lowering the number
+    /// would make the next upgrade re-run steps that have already happened.
+    #[test]
+    fn a_version_from_a_newer_build_is_not_lowered() {
+        let connection = memory_database();
+        set_schema_version(&connection, 9).expect("pretend a newer build wrote it");
+
+        initialize_database(&connection).expect("reopened");
+
+        assert_eq!(schema_version(&connection).expect("version"), 9);
     }
 
     #[test]
@@ -2010,8 +2566,12 @@ mod tests {
             ..Settings::default()
         };
 
-        assert_eq!(effective_threshold(&settings, None), 2.0);
-        assert_eq!(effective_threshold(&settings, Some(5.0)), 5.0);
+        assert_eq!(effective_threshold(&settings, None, None), 2.0);
+        assert_eq!(effective_threshold(&settings, Some(5.0), None), 5.0);
+        // The provider's own number is between the two: it beats the flat
+        // default, and losing to an explicit choice is the point of the order.
+        assert_eq!(effective_threshold(&settings, None, Some(4.0)), 4.0);
+        assert_eq!(effective_threshold(&settings, Some(5.0), Some(4.0)), 5.0);
 
         set_provider_threshold(&connection, "openrouter", Some(9.0)).expect("stored");
         let thresholds = provider_thresholds(&connection).expect("thresholds");
@@ -2043,6 +2603,206 @@ mod tests {
         );
     }
 
+    /// CheaperInference publishes the balance it auto-recharges at, which knows
+    /// more about the account than a flat $2 does. The number has to survive a
+    /// round trip through the database, because the tray and the notifier resolve
+    /// thresholds from stored state rather than by re-fetching.
+    #[test]
+    fn a_providers_own_threshold_beats_the_app_default() {
+        let connection = memory_database();
+
+        let mut reading = balance(Basis::AccountCredits, 40.0, Some(40.0), None);
+        reading.provider = "cheaperinference";
+        reading.provider_threshold = Some(25.0);
+        save_snapshot(&connection, &reading).expect("saved");
+
+        let resolved = resolved_thresholds(&connection).expect("resolved");
+        assert_eq!(
+            resolved.iter().find(|(name, _)| name == "cheaperinference"),
+            Some(&("cheaperinference".to_string(), 25.0))
+        );
+        // OpenRouter publishes nothing, so it keeps the app default.
+        assert_eq!(
+            resolved.iter().find(|(name, _)| name == "openrouter"),
+            Some(&("openrouter".to_string(), DEFAULT_LOW_BALANCE_THRESHOLD))
+        );
+
+        // An explicit choice still wins over the provider's own number.
+        set_provider_threshold(&connection, "cheaperinference", Some(7.0)).expect("stored");
+        let resolved = resolved_thresholds(&connection).expect("resolved");
+        assert_eq!(
+            resolved.iter().find(|(name, _)| name == "cheaperinference"),
+            Some(&("cheaperinference".to_string(), 7.0))
+        );
+
+        // Clearing it falls back to the provider again rather than to $2, and the
+        // newest reading replaces the older one, so a provider that changes what
+        // it calls low is followed instead of remembered.
+        set_provider_threshold(&connection, "cheaperinference", None).expect("cleared");
+        let mut newer = reading.clone();
+        newer.provider_threshold = Some(30.0);
+        save_snapshot(&connection, &newer).expect("saved");
+
+        let resolved = resolved_thresholds(&connection).expect("resolved");
+        assert_eq!(
+            resolved.iter().find(|(name, _)| name == "cheaperinference"),
+            Some(&("cheaperinference".to_string(), 30.0))
+        );
+    }
+
+    /// The due check is what decides whether a paid endpoint gets called, so it
+    /// is measured rather than assumed: a provider's own interval has to win over
+    /// the app default, a provider that was never asked has to be due, and a
+    /// failed attempt has to back off instead of being retried on the next beat.
+    #[test]
+    fn only_providers_whose_own_interval_has_elapsed_are_due() {
+        let connection = memory_database();
+        let settings = Settings {
+            poll_interval_minutes: 30,
+            ..Settings::default()
+        };
+        save_settings(&connection, &settings).expect("settings");
+
+        // Never asked: due, which is what makes a fresh install fetch.
+        assert_eq!(
+            due_providers(&connection).expect("due"),
+            vec!["openrouter", "cheaperinference"]
+        );
+
+        // OpenRouter on a four-hour interval, the other on the app default.
+        set_provider_interval(&connection, "openrouter", Some(240)).expect("stored");
+        assert_eq!(
+            resolved_intervals(&connection).expect("resolved"),
+            vec![
+                ("openrouter".to_string(), 240),
+                ("cheaperinference".to_string(), 30),
+            ]
+        );
+
+        record_attempts(&connection, &["openrouter", "cheaperinference"]).expect("recorded");
+        assert!(
+            due_providers(&connection).expect("due").is_empty(),
+            "nothing is due straight after being asked"
+        );
+
+        // An attempt an hour ago: the 30-minute provider is due again and the
+        // four-hour one is not. Backdating the row is how the clock is moved
+        // here, since the comparison itself is SQLite's.
+        connection
+            .execute(
+                "UPDATE providers SET last_attempt_at = datetime('now', '-1 hour')",
+                [],
+            )
+            .expect("backdated");
+
+        assert_eq!(due_providers(&connection).expect("due"), vec!["cheaperinference"]);
+
+        // Clearing the override puts it back on the app default, and zero is
+        // clamped so it cannot become a spin loop against a paid API.
+        set_provider_interval(&connection, "openrouter", None).expect("cleared");
+        assert_eq!(effective_interval(&settings, Some(0)), 1);
+        assert_eq!(effective_interval(&settings, None), 30);
+        assert_eq!(effective_interval(&settings, Some(15)), 15);
+    }
+
+    /// A failed attempt still counts as an attempt, or a rate-limited provider
+    /// would be hammered on every beat.
+    #[test]
+    fn an_attempt_is_recorded_even_when_nothing_is_read() {
+        let connection = memory_database();
+
+        record_attempts(&connection, &["openrouter"]).expect("recorded");
+
+        let attempts = last_attempts(&connection).expect("attempts");
+        let openrouter = attempts.iter().find(|(name, _)| name == "openrouter");
+        assert!(matches!(openrouter, Some((_, Some(_)))));
+
+        // No reading was stored, which is the point: the two facts are separate.
+        assert_eq!(history(&connection, "openrouter", 10).expect("history").len(), 0);
+
+        let elsewhere = attempts.iter().find(|(name, _)| name == "cheaperinference");
+        assert_eq!(elsewhere, Some(&("cheaperinference".to_string(), None)));
+    }
+
+    /// The export is a second way of reading the same rows, so what it must get
+    /// right is that a number never arrives without what it means: a spend figure
+    /// is not a balance, a 90-day window is not all-time, and two accounts' rows
+    /// are not one series. Also pins the order, because a chart built from the
+    /// file would be drawn backwards otherwise.
+    #[test]
+    fn the_export_carries_what_each_number_means() {
+        let connection = memory_database();
+
+        // An all-time spend reading for OpenRouter.
+        connection
+            .execute(
+                "INSERT INTO balance_snapshots (provider_id, remaining, basis, usage, recorded_at)
+                 SELECT id, 12.5, 'usage', 12.5, '2026-09-24 06:00:00' FROM providers
+                 WHERE name = 'openrouter'",
+                [],
+            )
+            .expect("stored");
+
+        // A windowed account balance for CheaperInference, with its own threshold.
+        connection
+            .execute(
+                "INSERT INTO balance_snapshots
+                    (provider_id, remaining, basis, account_credits, usage, spend_window_days,
+                     provider_threshold_usd, key_fingerprint, recorded_at)
+                 SELECT id, 9.5, 'account_credits', 9.5, 4.5, 90, 5.0, 'abc123',
+                        '2026-09-20 06:00:00'
+                 FROM providers WHERE name = 'cheaperinference'",
+                [],
+            )
+            .expect("stored");
+
+        let csv = history_csv(&connection, None).expect("exported");
+        let lines: Vec<&str> = csv.lines().collect();
+
+        assert_eq!(
+            lines[0],
+            "provider,recorded_at,basis,remaining,account_credits,usage,spend_window_days,\
+provider_threshold_usd,key_fingerprint"
+        );
+        // Two readings, and the older one first.
+        assert_eq!(lines.len(), 3);
+
+        let cheaper = lines[1].split(',').collect::<Vec<_>>();
+        assert_eq!(cheaper[0], "cheaperinference");
+        assert_eq!(cheaper[2], "account_credits");
+        assert_eq!(cheaper[7], "5", "the provider's own threshold travels with the row");
+        assert_eq!(cheaper[8], "abc123", "so do two accounts' rows stay apart");
+
+        let openrouter = lines[2].split(',').collect::<Vec<_>>();
+        assert_eq!(openrouter[0], "openrouter");
+        // A spend figure keeps the label saying it is not money left.
+        assert_eq!(openrouter[2], "usage");
+        // And an all-time figure leaves the window empty rather than saying zero.
+        assert_eq!(openrouter[6], "");
+        assert_eq!(openrouter[3], "12.5");
+    }
+
+    /// A field with a comma in it would shift every later column by one, and a
+    /// spreadsheet cannot tell that a column is wrong.
+    #[test]
+    fn a_field_with_a_comma_in_it_is_quoted() {
+        assert_eq!(csv_field("plain"), "plain");
+        assert_eq!(csv_field("a,b"), "\"a,b\"");
+        assert_eq!(csv_field("say \"hi\""), "\"say \"\"hi\"\"\"");
+        assert_eq!(csv_field("two\nlines"), "\"two\nlines\"");
+    }
+
+    /// An empty database still exports, with the header and nothing under it.
+    #[test]
+    fn an_empty_history_exports_just_the_header() {
+        let connection = memory_database();
+
+        let csv = history_csv(&connection, None).expect("exported");
+
+        assert_eq!(csv.lines().count(), 1);
+        assert!(csv.ends_with('\n'));
+    }
+
     #[test]
     fn unknown_basis_text_reads_back_as_usage() {
         assert_eq!(Basis::from_db("something_new"), Basis::Usage);
@@ -2060,5 +2820,63 @@ mod tests {
                 serde_json::json!(basis.as_str())
             );
         }
+    }
+
+    /// A leftover environment variable is the one thing `forget_key` has to
+    /// report, because the app cannot unset it for the user. This is the check
+    /// behind "Key removed, provider still configured".
+    #[test]
+    fn an_environment_key_is_what_a_removal_cannot_clear() {
+        // This test binary has no other reader of a provider's environment
+        // variable, so setting one here cannot disturb another test.
+        assert_eq!(env_credential("openrouter"), None);
+
+        // Edition 2024 made mutating the environment unsafe: another thread may
+        // be reading it concurrently, which is precisely why the core reads the
+        // key once and keeps it rather than looking it up per request.
+        unsafe { std::env::set_var("OPENROUTER_KEY", "sk-or-v1-not-a-real-key") };
+        assert_eq!(env_credential("openrouter"), Some("OPENROUTER_KEY"));
+        unsafe { std::env::remove_var("OPENROUTER_KEY") };
+
+        assert_eq!(env_credential("openrouter"), None);
+    }
+
+    /// The provider is checked before any keychain work, so a typo on the
+    /// command line cannot reach the credential store at all.
+    #[test]
+    fn forgetting_an_unknown_provider_touches_no_credential() {
+        assert!(forget_key("not-a-provider").is_err());
+    }
+
+    /// When a provider's history starts comes from its earliest reading, so it
+    /// works for a provider that was configured before the app first ran.
+    #[test]
+    fn a_history_start_is_the_earliest_reading_not_the_newest() {
+        let connection = memory_database();
+
+        // Nothing stored yet: no history to date.
+        let starts = first_reading_at(&connection).expect("starts");
+        assert_eq!(starts.iter().find(|(name, _)| name == "openrouter"), Some(&("openrouter".to_string(), None)));
+
+        for (remaining, recorded_at) in [(12.0, "2026-09-20 06:00:00"), (4.0, "2026-09-24 22:00:00")] {
+            connection
+                .execute(
+                    "INSERT INTO balance_snapshots (provider_id, remaining, basis, recorded_at)
+                     SELECT id, ?1, 'account_credits', ?2 FROM providers WHERE name = 'openrouter'",
+                    params![remaining, recorded_at],
+                )
+                .expect("stored");
+        }
+
+        let starts = first_reading_at(&connection).expect("starts");
+        assert_eq!(
+            starts.iter().find(|(name, _)| name == "openrouter"),
+            Some(&("openrouter".to_string(), Some("2026-09-20 06:00:00".to_string())))
+        );
+        // A provider with no readings says so rather than claiming today.
+        assert_eq!(
+            starts.iter().find(|(name, _)| name == "cheaperinference"),
+            Some(&("cheaperinference".to_string(), None))
+        );
     }
 }

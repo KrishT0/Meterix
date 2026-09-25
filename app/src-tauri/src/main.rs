@@ -21,11 +21,13 @@ use tauri::{AppHandle, Emitter, Manager, WindowEvent};
 use tauri_plugin_notification::NotificationExt;
 
 use meterix_core::{
-    Basis, DEFAULT_POLL_INTERVAL_MINUTES, MISSING_CREDENTIAL_KIND, Notice, PROVIDERS, Settings,
-    Snapshot, credential_hint, display_name, effective_threshold, fetch_balances, forget_key,
-    history, load_settings, open_database, provider_fingerprint, provider_thresholds,
+    Basis, MISSING_CREDENTIAL_KIND, Notice, PROVIDERS, Settings, Snapshot, credential_hint,
+    display_name, due_providers, fallback_thresholds, fetch_selected, first_reading_at, forget_key,
+    history, history_csv, load_settings, open_database, provider_fingerprint, provider_intervals,
+    provider_thresholds, record_attempts, requested_providers, resolved_thresholds,
     save_settings as persist_settings, save_snapshot, save_verified_key,
-    set_provider_threshold as store_threshold, take_notifications,
+    set_provider_interval as store_interval, set_provider_threshold as store_threshold,
+    take_notifications,
 };
 
 /// One provider, as the dashboard needs it: whether a key exists, and the most
@@ -96,7 +98,9 @@ impl LastOutcomes {
 fn overview() -> Result<Vec<ProviderOverview>, String> {
     let connection = open_database().map_err(|error| error.to_string())?;
     let settings = load_settings(&connection).map_err(|error| error.to_string())?;
-    let own = provider_thresholds(&connection).map_err(|error| error.to_string())?;
+    // Resolved in one place, so a provider cannot be low on the dashboard and
+    // fine in the tray.
+    let thresholds = resolved_thresholds(&connection).map_err(|error| error.to_string())?;
 
     PROVIDERS
         .iter()
@@ -110,10 +114,13 @@ fn overview() -> Result<Vec<ProviderOverview>, String> {
             // stored" and "is anything stored".
             let hint = credential_hint(name);
 
-            let override_threshold = own
+            let threshold = thresholds
                 .iter()
                 .find(|(provider, _)| provider == name)
-                .and_then(|(_, threshold)| *threshold);
+                .map_or_else(
+                    || settings.low_balance_threshold,
+                    |(_, threshold)| *threshold,
+                );
 
             Ok(ProviderOverview {
                 name: (*name).to_string(),
@@ -126,7 +133,7 @@ fn overview() -> Result<Vec<ProviderOverview>, String> {
                 usage: latest.as_ref().and_then(|snapshot| snapshot.usage),
                 spend_window_days: latest.as_ref().and_then(|snapshot| snapshot.spend_window_days),
                 recorded_at: latest.map(|snapshot| snapshot.recorded_at),
-                threshold: effective_threshold(&settings, override_threshold),
+                threshold,
                 key_fingerprint: provider_fingerprint(name),
             })
         })
@@ -140,12 +147,39 @@ async fn refresh_and_store(
     app: &AppHandle,
     only: Option<&str>,
 ) -> Result<Vec<RefreshOutcome>, String> {
+    let selection = requested_providers(only).map_err(|error| error.to_string())?;
+
+    refresh_selected(app, &selection).await
+}
+
+/// Fetch, store and report an explicit set of providers.
+///
+/// The poller is why this takes a set rather than one name: it fetches everything
+/// that is due in a single pass, because notifications are worked out across the
+/// whole batch — two providers crossing a threshold in the same check are one
+/// message rather than two.
+async fn refresh_selected(
+    app: &AppHandle,
+    providers: &[&'static str],
+) -> Result<Vec<RefreshOutcome>, String> {
     // Fetch first and open the database afterwards. A rusqlite `Connection` is
     // Send but not Sync, so holding one across an await would make this future
     // non-Send and stop the command from compiling.
-    let outcomes = fetch_balances(only).await.map_err(|error| error.to_string())?;
+    let outcomes = fetch_selected(providers)
+        .await
+        .map_err(|error| error.to_string())?;
 
     let connection = open_database().map_err(|error| error.to_string())?;
+    // Recorded before the readings are stored, and on every path that fetches
+    // rather than only in the poller: a manual refresh should push the next
+    // automatic one out too, and a provider that fails has to back off for its
+    // own interval instead of being retried on the next beat.
+    if let Err(error) = record_attempts(&connection, providers) {
+        // Not fatal. Losing the timestamp costs one extra fetch; refusing to go
+        // on would cost the readings.
+        eprintln!("could not record the attempt: {error}");
+    }
+
     let thresholds = resolved_threshold_map(&connection)?;
     let mut rows = Vec::with_capacity(outcomes.len());
 
@@ -338,8 +372,11 @@ async fn set_key(provider: String, key: String) -> Result<SaveKeyOutcome, String
 }
 
 /// Drops the keychain entry. Stored readings stay, so this is reversible.
+///
+/// Returns the environment variable still supplying a key, if one is, so the
+/// window can say why a provider it just removed is still on the list.
 #[tauri::command]
-fn remove_provider(provider: String) -> Result<(), String> {
+fn remove_provider(provider: String) -> Result<Option<&'static str>, String> {
     forget_key(&provider).map_err(|error| error.to_string())
 }
 
@@ -356,9 +393,9 @@ const POPOVER_LABEL: &str = "tray";
 /// rather than being handed state, so there is one path for reading it.
 const UPDATED_EVENT: &str = "balances-updated";
 
-/// How often the background poller runs, until someone changes it. The stored
-/// setting is read fresh on every loop; `Poller::wake` cuts the current wait
-/// short when it changes.
+/// How often the poller wakes to see whether anything is due. Read fresh on every
+/// beat, so changing an interval takes effect within half a minute.
+const POLL_BEAT: Duration = Duration::from_secs(30);
 const COLOUR_OK: [u8; 3] = [0x4D, 0xB6, 0xAC];
 const COLOUR_LOW: [u8; 3] = [0xE0, 0xA6, 0x4B];
 const COLOUR_ERROR: [u8; 3] = [0xD0, 0x8A, 0x5C];
@@ -506,7 +543,7 @@ fn open_dashboard(app: AppHandle) {
 
 /// Show the popover beside the tray icon, or hide it if it is already up.
 fn toggle_popover(app: &AppHandle, anchor: Option<tauri::Rect>) {
-    let Some(popover) = app.get_webview_window(POPOVER_LABEL) else {
+    let Some(popover) = popover_window(app) else {
         return;
     };
 
@@ -521,6 +558,43 @@ fn toggle_popover(app: &AppHandle, anchor: Option<tauri::Rect>) {
 
     let _ = popover.show();
     let _ = popover.set_focus();
+}
+
+/// The popover window, building it the first time one is asked for.
+///
+/// `create: false` in `tauri.conf.json` is what keeps it out of startup. A window
+/// listed there is built straight away, so every session carried a second webview
+/// that a session with no tray click never looked at. It is built from that same
+/// config entry rather than from literals repeated here, so its size, chrome and
+/// background stay in one place.
+fn popover_window(app: &AppHandle) -> Option<tauri::WebviewWindow> {
+    if let Some(existing) = app.get_webview_window(POPOVER_LABEL) {
+        return Some(existing);
+    }
+
+    let config = app
+        .config()
+        .app
+        .windows
+        .iter()
+        .find(|window| window.label == POPOVER_LABEL)?;
+
+    let popover = tauri::WebviewWindowBuilder::from_config(app, config)
+        .and_then(|builder| builder.build())
+        .map_err(|error| eprintln!("could not build the popover: {error}"))
+        .ok()?;
+
+    // Attached here because this is now the only place the window is built. The
+    // popover should disappear as soon as it stops being the thing being used,
+    // which is what every tray popover does.
+    let handle = popover.clone();
+    popover.on_window_event(move |event| {
+        if let WindowEvent::Focused(false) = event {
+            let _ = handle.hide();
+        }
+    });
+
+    Some(popover)
 }
 
 /// Put the popover next to the tray icon, on whichever side has room. Windows
@@ -558,43 +632,32 @@ fn place_popover(popover: &tauri::WebviewWindow, anchor: tauri::Rect) {
 /// This is what makes the app a watcher rather than a viewer. The readings that
 /// give the chart and the burn rate something to work with only accumulate if
 /// something fetches unasked.
-async fn poll_once(app: &AppHandle) {
-    if let Err(error) = refresh_and_store(app, None).await {
+/// Take one look at what is due, and fetch those providers together.
+async fn poll_due(app: &AppHandle) {
+    let due = match open_database().and_then(|connection| due_providers(&connection)) {
+        Ok(due) => due,
+        Err(error) => {
+            eprintln!("could not work out which providers are due: {error}");
+            return;
+        }
+    };
+
+    if due.is_empty() {
+        return;
+    }
+
+    if let Err(error) = refresh_selected(app, &due).await {
         eprintln!("poll failed: {error}");
     }
-}
-
-/// Lets a settings change cut the poller's sleep short, so a new interval takes
-/// effect immediately rather than after the old one has elapsed.
-#[derive(Default)]
-struct Poller {
-    wake: tokio::sync::Notify,
-}
-
-fn stored_interval_minutes() -> u32 {
-    open_database()
-        .and_then(|connection| load_settings(&connection))
-        .map(|settings| settings.poll_interval_minutes)
-        .unwrap_or(DEFAULT_POLL_INTERVAL_MINUTES)
 }
 
 fn spawn_poller(app: AppHandle) {
     tauri::async_runtime::spawn(async move {
         loop {
-            let minutes = stored_interval_minutes();
-            let wait = tokio::time::sleep(Duration::from_secs(u64::from(minutes) * 60));
-
-            // Bound before the macro: `app.state` returns a temporary, and
-            // borrowing it inline would drop it mid-expression.
-            let poller = app.state::<Poller>();
-
-            // Sleeping before the first poll: the dashboard already refreshes
-            // on mount, so polling straight away would double every launch.
-            tokio::select! {
-                () = wait => poll_once(&app).await,
-                // The interval changed. Go round and read the new one.
-                () = poller.wake.notified() => {}
-            }
+            // Sleeping before looking: the dashboard refreshes on mount, so
+            // fetching at launch would double the first round.
+            tokio::time::sleep(POLL_BEAT).await;
+            poll_due(&app).await;
         }
     });
 }
@@ -615,7 +678,13 @@ fn build_tray(app: &AppHandle, quitting: Arc<AtomicBool>) -> tauri::Result<()> {
             "open" => show_dashboard(app),
             "refresh" => {
                 let app = app.clone();
-                tauri::async_runtime::spawn(async move { poll_once(&app).await });
+                // Everything, not just what the poller thinks is due: that is
+                // what pressing Refresh means.
+                tauri::async_runtime::spawn(async move {
+                    if let Err(error) = refresh_and_store(&app, None).await {
+                        eprintln!("manual refresh failed: {error}");
+                    }
+                });
             }
             "quit" => {
                 quitting.store(true, Ordering::SeqCst);
@@ -661,6 +730,16 @@ struct ProviderSetting {
     low_balance_threshold: Option<f64>,
     /// Never null: this list only holds providers that still have a key.
     key_hint: String,
+    /// The number that applies when this provider's box is left blank: the
+    /// provider's own published threshold, or the app default.
+    fallback_threshold: f64,
+    /// The earliest reading stored for this provider, so "tracking since" is a
+    /// fact rather than a note taken when the row was first written. Null until
+    /// it has a reading.
+    first_reading_at: Option<String>,
+    /// How often this provider alone is checked. Null when it uses the app-wide
+    /// interval.
+    poll_interval_minutes: Option<u32>,
 }
 
 #[tauri::command]
@@ -670,6 +749,9 @@ fn settings(app: AppHandle) -> Result<SettingsView, String> {
     let connection = open_database().map_err(|error| error.to_string())?;
     let current = load_settings(&connection).map_err(|error| error.to_string())?;
     let own = provider_thresholds(&connection).map_err(|error| error.to_string())?;
+    let fallback = fallback_thresholds(&connection).map_err(|error| error.to_string())?;
+    let started = first_reading_at(&connection).map_err(|error| error.to_string())?;
+    let intervals = provider_intervals(&connection).map_err(|error| error.to_string())?;
 
     // Only providers that actually hold a key. Listing every supported provider
     // meant a fresh install showed two rows and two threshold boxes, which reads
@@ -685,6 +767,20 @@ fn settings(app: AppHandle) -> Result<SettingsView, String> {
                     .iter()
                     .find(|(provider, _)| provider == name)
                     .and_then(|(_, threshold)| *threshold),
+                // What a blank box will actually mean for this provider, which is
+                // not always the app default.
+                fallback_threshold: fallback
+                    .iter()
+                    .find(|(provider, _)| provider == name)
+                    .map_or(current.low_balance_threshold, |(_, value)| *value),
+                first_reading_at: started
+                    .iter()
+                    .find(|(provider, _)| provider == name)
+                    .and_then(|(_, value)| value.clone()),
+                poll_interval_minutes: intervals
+                    .iter()
+                    .find(|(provider, _)| provider == name)
+                    .and_then(|(_, minutes)| *minutes),
                 key_hint: credential_hint(name)?,
             })
         })
@@ -739,10 +835,6 @@ fn save_settings(app: AppHandle, settings: Settings, autostart: bool) -> Result<
 
     apply_autostart(&app, autostart)?;
 
-    // Cut the current sleep short, so a new interval is not waiting behind the
-    // old one.
-    app.state::<Poller>().wake.notify_one();
-
     // The app-wide default threshold travels with this, so every provider sitting
     // on that default needs its colour worked out again.
     recolour_tray(&app);
@@ -767,6 +859,45 @@ fn set_provider_threshold(
     Ok(())
 }
 
+/// Null puts the provider back on the app-wide interval.
+#[tauri::command]
+fn set_provider_interval(provider: String, minutes: Option<u32>) -> Result<(), String> {
+    let connection = open_database().map_err(|error| error.to_string())?;
+
+    store_interval(&connection, &provider, minutes).map_err(|error| error.to_string())
+}
+
+/// Write the reading history out as CSV, in the folder the database lives in.
+///
+/// Straight into the data folder rather than through a save dialog, because a
+/// dialog means another plugin in the tree and this project keeps its dependencies
+/// thin on purpose. The window shows the path it wrote.
+///
+/// The file is derived from the database and can be written again at any time, so
+/// exporting twice replaces it instead of leaving copies to accumulate.
+#[tauri::command]
+fn export_history(provider: Option<String>) -> Result<String, String> {
+    let connection = open_database().map_err(|error| error.to_string())?;
+    let csv = history_csv(&connection, provider.as_deref()).map_err(|error| error.to_string())?;
+
+    let name = provider.as_deref().map_or_else(
+        || "meterix-history.csv".to_string(),
+        |provider| format!("meterix-{provider}-history.csv"),
+    );
+
+    let folder = meterix_core::database_path()
+        .map_err(|error| error.to_string())?
+        .parent()
+        .ok_or_else(|| "the database path has no folder".to_string())?
+        .to_path_buf();
+    let path = folder.join(name);
+
+    std::fs::write(&path, csv)
+        .map_err(|error| format!("could not write {}: {error}", path.display()))?;
+
+    Ok(path.display().to_string())
+}
+
 fn main() {
     let quitting = Arc::new(AtomicBool::new(false));
     let quit_flag = Arc::clone(&quitting);
@@ -786,12 +917,14 @@ fn main() {
             open_dashboard,
             settings,
             save_settings,
-            set_provider_threshold
+            set_provider_threshold,
+            set_provider_interval,
+            export_history
         ])
         .setup(move |app| {
             let handle = app.handle().clone();
 
-            app.manage(Poller::default());
+            app.manage(LastOutcomes::default());
             app.manage(LastOutcomes::default());
             build_tray(&handle, Arc::clone(&quitting))?;
 
@@ -810,16 +943,8 @@ fn main() {
                 });
             }
 
-            // The popover should disappear as soon as it stops being the thing
-            // being used, which is what every tray popover does.
-            if let Some(popover) = app.get_webview_window(POPOVER_LABEL) {
-                let handle = popover.clone();
-                popover.on_window_event(move |event| {
-                    if let WindowEvent::Focused(false) = event {
-                        let _ = handle.hide();
-                    }
-                });
-            }
+            // The popover is not built here: `create: false` leaves it to the
+            // first tray click. See `popover_window`.
 
             spawn_poller(handle);
             Ok(())
