@@ -430,24 +430,62 @@ impl Provider for OpenRouterCompatible {
         let key_url = format!("{}/api/v1/key", self.base_url);
         let credits_url = format!("{}/api/v1/credits", self.base_url);
 
+        // Both are attempted and either alone is enough: a gateway that cloned one
+        // of these two endpoints has not necessarily cloned the other, so requiring
+        // `/key` would rule out a gateway that only ever implemented `/credits`.
+        // OpenRouter itself answers both, which is why this only became visible
+        // when a second gateway was tried against the shape.
         let key_info = fetch_json::<OpenRouterResponse>(&self.client, &self.key, &key_url)
-            .await?
-            .data;
+            .await
+            .map(|response| response.data);
 
-        // The real account balance. Read on every fetch even though the docs
-        // say a management key is required: a personal key can read it too, and
-        // the cost of guessing wrong in the other direction is losing the only
-        // number this app exists to show.
         let account_credits = fetch_json::<OpenRouterCreditsResponse>(
             &self.client,
             &self.key,
             &credits_url,
         )
         .await
-        .ok()
         .map(|credits| credits.data.total_credits - credits.data.total_usage);
 
-        openrouter_balance(&self.provider, &key_info, account_credits)
+        openrouter_shape_balance(&self.provider, key_info, account_credits)
+    }
+}
+
+/// A balance from whichever of the shape's two endpoints answered.
+///
+/// Split out from the request so both cases can be exercised without a network:
+/// the interesting behaviour is what to do when only one of them is there, and
+/// which failure to report when neither is.
+fn openrouter_shape_balance(
+    provider: &str,
+    key_info: Result<OpenRouterData, ProviderError>,
+    account_credits: Result<f64, ProviderError>,
+) -> Result<Balance, ProviderError> {
+    match (key_info, account_credits) {
+        // The usual case: both endpoints, so the key's cap and usage are known too.
+        (Ok(info), credits) => openrouter_balance(provider, &info, credits.ok()),
+
+        // Only the credits endpoint. Enough to report a balance, which is the one
+        // number this app exists to show.
+        (Err(_), Ok(credits)) => Ok(Balance {
+            provider: provider.to_string(),
+            basis: Basis::AccountCredits,
+            remaining: credits,
+            account_credits: Some(credits),
+            // The credits endpoint reports a running usage total, not a window.
+            usage: None,
+            spend_window_days: None,
+            provider_threshold: None,
+            key_fingerprint: None,
+        }),
+
+        // Neither. A rejected key is the failure a person can act on, so it is
+        // reported ahead of a reply that could not be read.
+        (Err(from_key), Err(from_credits)) => Err(if from_key.credential_is_broken() {
+            from_key
+        } else {
+            from_credits
+        }),
     }
 }
 
@@ -3855,6 +3893,37 @@ provider_threshold_usd,key_fingerprint"
             balance_infos: vec![balance_info("USD", "not a number")]
         })
         .is_err());
+    }
+
+    /// A gateway that cloned only the credits endpoint has to work, because that
+    /// one endpoint is enough to report a balance. Requiring the key endpoint as
+    /// well would rule it out, and nothing about the shape says a gateway must
+    /// have both.
+    #[test]
+    fn a_gateway_that_only_speaks_the_credits_endpoint_still_reports_a_balance() {
+        let balance = openrouter_shape_balance(
+            "orcarouter",
+            Err(ProviderError::Unreachable("no such endpoint".to_string())),
+            Ok(12.35),
+        )
+        .expect("a balance");
+
+        // Filed under the row that asked, and presented as money left.
+        assert_eq!(balance.provider, "orcarouter");
+        assert_eq!(balance.basis, Basis::AccountCredits);
+        assert_eq!(balance.remaining, 12.35);
+        assert_eq!(balance.account_credits, Some(12.35));
+
+        // With neither endpoint answering, a rejected key is reported as a rejected
+        // key rather than as an unreadable reply, because that one tells a person
+        // what to go and fix.
+        let error = openrouter_shape_balance(
+            "orcarouter",
+            Err(ProviderError::BadResponse("no such endpoint".to_string())),
+            Err(ProviderError::Unauthorized),
+        )
+        .expect_err("refused");
+        assert!(matches!(error, ProviderError::Unauthorized), "{error:?}");
     }
 
     #[test]

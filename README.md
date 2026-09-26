@@ -198,6 +198,12 @@ thresholds and no copy for what a provider error means.
 decisions that would otherwise look arbitrary, and an honest list of gaps.
 `mockup/index.html` is the design reference, showing all three surfaces at once.
 
+## Licence
+
+MIT or Apache-2.0, at your option. The two texts are `LICENSE-MIT` and
+`LICENSE-APACHE` at the root, and either half may be used on its own, which is the
+usual arrangement for a Rust project.
+
 ## Layout
 
 ```

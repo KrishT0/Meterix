@@ -6,7 +6,7 @@
     <title>Meterix - LLM API credit tracker for your system tray</title>
     <meta
       name="description"
-      content="Track remaining LLM API credits in your system tray. Polls OpenRouter, CheaperInference, DeepSeek and ElevenLabs. Free and local, keys stay in your OS keychain."
+      content="Track remaining LLM API credits from OpenRouter, DeepSeek, ElevenLabs and more in your system tray. Open source and local."
     />
 
     <!-- The reserved example.com host below stands in for the real origin. It is
@@ -74,6 +74,7 @@
         "description": "A system tray app that polls LLM API providers on a timer and shows the lowest remaining balance.",
         "url": "https://example.com/",
         "isAccessibleForFree": true,
+        "license": "https://opensource.org/license/mit",
         "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
         "featureList": [
           "Remaining balance for OpenRouter, CheaperInference, DeepSeek and ElevenLabs",
@@ -427,6 +428,7 @@
                 <li>It reads balances. It is not a cost calculator and not a proxy, so nothing you send to a provider goes through it.</li>
                 <li>There is no account, no cloud and no sync. The database is one file on your machine.</li>
                 <li>Four providers to start with, and more by configuration. Which providers are watched is data, and a gateway that speaks a shape Meterix already understands can be added from the command line. A provider whose API speaks a new shape is still a code change.</li>
+                <li>Open source, under MIT or Apache-2.0, so either half may be used on its own.</li>
                 <li>Desktop only. There is no mobile app and no web version.</li>
               </ul>
             </div>
@@ -500,7 +502,7 @@ npm run tauri build</pre>
 
     <footer class="site-footer">
       <div class="wrap footer">
-        <span>Meterix. Local first, and your keys stay in your operating system's keychain.</span>
+        <span>Meterix. Local first, your keys stay in the operating system keychain, and the code is MIT or Apache-2.0.</span>
         <div class="footer-links">
           <a href="#providers">Providers</a>
           <a href="#limits">Limits</a>

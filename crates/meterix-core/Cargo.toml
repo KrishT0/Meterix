@@ -2,6 +2,7 @@
 name = "meterix-core"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
 publish = false
 
 # The command line front end lives in this package, but the binary is named for

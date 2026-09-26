@@ -12,6 +12,10 @@ members = ["crates/meterix-core", "app/src-tauri"]
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
+# Dual licensed, which is the convention in this ecosystem and the most
+# compatible: either half may be used on its own. The texts are LICENSE-MIT and
+# LICENSE-APACHE at the root.
+license = "MIT OR Apache-2.0"
 
 # Versions used by more than one member. A crate only one member needs is
 # declared there, where its features are the only ones that matter.
