@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import type { ReactNode } from 'react'
 import { listen } from '@tauri-apps/api/event'
 
 import { BalanceChart, type Series } from './components/BalanceChart'
@@ -55,6 +56,27 @@ function burnPerDay(series: SnapshotRow[][]): number | null {
 
   if (seconds <= 0) return null
   return (spent / seconds) * 86_400
+}
+
+/** The strip both views use for their bar.
+ *
+ *  It is the window's title bar now rather than a header sitting under one, so the
+ *  drag region and the window controls live here once instead of once per view:
+ *  opening settings must not take away the only way to move, minimise or close the
+ *  window. Only what sits between the two ends differs by view.
+ *
+ *  It is `shrink-0` and each view's content scrolls beneath it, so the bar stays
+ *  put instead of scrolling away with the page. */
+function TitleBar({ children }: { children: ReactNode }) {
+  return (
+    <header
+      data-tauri-drag-region="deep"
+      className="relative z-10 flex shrink-0 items-center gap-2.5 border-b border-line px-5 py-2 pl-4"
+    >
+      {children}
+      <WindowControls window="dashboard" />
+    </header>
+  )
 }
 
 export default function App() {
@@ -273,16 +295,18 @@ export default function App() {
 
   return (
     // The window is the app. No backdrop strip, no rounded panel sitting inside
-    // a page, so the content meets the window edges directly.
-    <div className="flex min-h-full flex-col bg-surface">
+    // a page, so the content meets the window edges directly. `h-full` rather than
+    // `min-h-full` because the title bar is fixed and the content scrolls under
+    // it, which needs the column to have a definite height.
+    <div className="flex h-full flex-col bg-surface">
       {view === 'settings' ? (
         <>
-          {/* Breadcrumb rather than reusing the dashboard header, so leaving is
-              at the top instead of below every setting. */}
-          <div className="flex items-center gap-2.5 border-b border-line px-5 py-3">
+          {/* Same strip as the dashboard's, because it is the window's frame now. */}
+          <TitleBar>
             <button
               type="button"
               onClick={showDashboard}
+              data-tauri-drag-region="false"
               className="flex items-center gap-1.5 text-ink-dim transition hover:text-ink"
             >
               <svg
@@ -302,19 +326,14 @@ export default function App() {
             </button>
             <span className="text-line-strong">/</span>
             <span className="text-[13px] font-semibold tracking-[-0.01em]">Settings</span>
-          </div>
+          </TitleBar>
 
           <Settings onClose={showDashboard} />
         </>
       ) : (
         <>
-      {/* The window's title bar: the app's header and the window controls on one
-          strip, because the native frame is gone. `deep` makes the whole subtree
-          draggable while the buttons, which are clickable, block it by default. */}
-      <header
-        data-tauri-drag-region="deep"
-        className="relative z-10 flex items-center gap-2.5 border-b border-line px-5 py-2 pl-4"
-      >
+      {/* The window's title bar, and the app's header, which are the same strip. */}
+      <TitleBar>
         <span className="text-[13px] font-semibold tracking-[-0.01em]">Meterix</span>
 
         <Pill className={`flex items-center gap-1.5 ${tones[overallTone].pill}`}>
@@ -357,14 +376,13 @@ export default function App() {
               Settings
             </span>
           </Button>
-          <WindowControls window="dashboard" />
         </div>
-      </header>
+      </TitleBar>
 
       {/* Puts the resize edges back on a window that has no native frame. */}
       <ResizeEdges />
 
-      <div className="flex-1 p-4">
+      <div className="flex-1 overflow-y-auto p-4">
         {fatal || failed.length > 0 || removalNote ? (
           <div className="space-y-4">
             {fatal ? (

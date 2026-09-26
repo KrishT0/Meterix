@@ -372,7 +372,11 @@
     <p class="why">Six providers, six hues, one status line each.</p>
 
     <p class="why">
-      The strip at the top of the window is the title bar, not a header sitting under one. The
+      This strip is fixed: the window controls, the wordmark and Refresh stay where they are and the
+      content below scrolls under them, on the dashboard and in settings alike. Settings has the same
+      strip rather than a breadcrumb of its own, because leaving the view must not take away the only
+      way to move, minimise or close the window. The strip at the top of the window is the title bar,
+      not a header sitting under one. The
       native Windows bar is gone, so the app draws its own controls at the right, and the empty
       span between the buttons and those controls is the region you drag the window by. Double
       clicking that span maximises and restores, which is what a title bar does everywhere else.
@@ -648,7 +652,17 @@
     </p>
 
     <div class="win">
-      <div class="crumb">‹ Dashboard <span class="dim">/</span> <b>Settings</b></div>
+      <div class="wtop">
+        <span class="wbtn">‹ Dashboard</span>
+        <span class="dim">/</span>
+        <span class="wbrand">Settings</span>
+        <span class="wsp"></span>
+        <span class="wctrls">
+          <span class="wctrl" title="Minimise"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M2.5 6h7"/></svg></span>
+          <span class="wctrl" title="Maximise"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2.5" y="2.5" width="7" height="7" rx="1.2"/></svg></span>
+          <span class="wctrl close" title="Close"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M3 3l6 6M9 3l-6 6"/></svg></span>
+        </span>
+      </div>
       <div class="wbody">
         <div>
           <div class="label">Polling</div>
@@ -840,6 +854,10 @@
           <span class="cdot" style="color:#E0A64B"></span>
           <span style="font-size:12px">Meterix</span>
           <span class="num" style="font-size:12px">139.94</span>
+          <span class="wsp"></span>
+          <span class="wctrls" style="margin-left:0; padding-left:8px">
+            <span class="wctrl close" title="Quit Meterix"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M3 3l6 6M9 3l-6 6"/></svg></span>
+          </span>
         </div>
         <div class="prow">
   <span class="sdot" style="background:#A9D05C"></span>

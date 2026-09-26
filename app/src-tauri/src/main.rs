@@ -589,7 +589,7 @@ fn toggle_popover(app: &AppHandle, anchor: Option<tauri::Rect>) {
     }
 
     if let Some(anchor) = anchor {
-        place_popover(&popover, anchor);
+        place_popover(app, &popover, anchor);
     }
 
     let _ = popover.show();
@@ -633,19 +633,54 @@ fn popover_window(app: &AppHandle) -> Option<tauri::WebviewWindow> {
     Some(popover)
 }
 
-/// Put the popover next to the tray icon, on whichever side has room. Windows
-/// keeps the tray at the bottom of the screen, so in practice it ends up above.
-fn place_popover(popover: &tauri::WebviewWindow, anchor: tauri::Rect) {
-    let scale = popover.scale_factor().unwrap_or(1.0);
-    let icon = anchor.position.to_physical::<f64>(scale);
-    let icon_size = anchor.size.to_physical::<f64>(scale);
+/// The popover's configured size in logical pixels.
+///
+/// Read from the config rather than from the window, because that is the point:
+/// the popover is built on the first tray click, and a window that has not been
+/// shown yet reports a size of zero.
+fn configured_popover_size(app: &AppHandle) -> (f64, f64) {
+    app.config()
+        .app
+        .windows
+        .iter()
+        .find(|window| window.label == POPOVER_LABEL)
+        .map_or((340.0, 420.0), |window| (window.width, window.height))
+}
 
-    let (Ok(Some(monitor)), Ok(size)) = (popover.current_monitor(), popover.outer_size()) else {
+/// Put the popover next to the tray icon, on whichever side has room.
+///
+/// Both the monitor and the size come from somewhere other than the popover, and
+/// that is the fix for a real bug: it is built on the first tray click, and a
+/// window that has not been shown yet has no useful size, so asking it produced a
+/// height of zero and the popover landed below the taskbar. The first click looked
+/// like it did nothing and the second one worked. The icon's position decides the
+/// monitor, and the config decides the size.
+fn place_popover(app: &AppHandle, popover: &tauri::WebviewWindow, anchor: tauri::Rect) {
+    let physical = match anchor.position {
+        tauri::Position::Physical(position) => (f64::from(position.x), f64::from(position.y)),
+        tauri::Position::Logical(position) => (position.x, position.y),
+    };
+
+    // Falling back to the window keeps a second monitor arrangement working even
+    // if the icon's coordinates are in a space this cannot resolve.
+    let monitor = app
+        .monitor_from_point(physical.0, physical.1)
+        .ok()
+        .flatten()
+        .or_else(|| popover.current_monitor().ok().flatten());
+
+    let Some(monitor) = monitor else {
         return;
     };
 
-    let width = f64::from(size.width);
-    let height = f64::from(size.height);
+    let scale = monitor.scale_factor();
+    let icon = anchor.position.to_physical::<f64>(scale);
+    let icon_size = anchor.size.to_physical::<f64>(scale);
+
+    let (logical_width, logical_height) = configured_popover_size(app);
+    let width = logical_width * scale;
+    let height = logical_height * scale;
+
     let screen = monitor.size();
     let origin = monitor.position();
 

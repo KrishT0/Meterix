@@ -282,7 +282,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
 
   if (!settings || !draft) {
     return (
-      <div className="flex-1 p-4">
+      <div className="flex-1 overflow-y-auto p-4">
         <Label className="text-ink-muted">{problem ? 'Could not read settings' : 'Loading'}</Label>
         {problem ? <p className="num mt-2 text-[11px] text-copper">{problem}</p> : null}
       </div>
@@ -292,7 +292,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
   const dirty = differs(settings, draft)
 
   return (
-    <div className="flex-1 p-4">
+    <div className="flex-1 overflow-y-auto p-4">
       {problem ? (
         <div className="mb-4 rounded-lg border border-copper-dim/40 bg-copper-tint px-3.5 py-2.5">
           <span className="num text-[11px] text-copper">{problem}</span>
