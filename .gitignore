@@ -12,3 +12,9 @@
 # directory. Nothing writes here any more. Ignored rather than deleted, so
 # removing it stays a separate decision from keeping a clean tree.
 /app/src-tauri/target
+
+# Local design work: the app mockups, and the two card files the share images are
+# rendered from. Kept on the development machine rather than in the repository,
+# because nothing is built or deployed from them and they drift from what they
+# describe (both mockup pages are already behind the app and the site they show).
+mockup/

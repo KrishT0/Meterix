@@ -1,0 +1,40 @@
+{
+  // Deploying the landing page as a Worker with static assets.
+  //
+  //   npx wrangler deploy
+  //
+  // There is no Worker script: the whole site is files, so nothing runs per
+  // request and no `main` is set. Cloudflare serves the assets, caches them, and
+  // compresses them on the way out.
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "meterix",
+  "compatibility_date": "2026-09-26",
+
+  "assets": {
+    // Wrangler uploads everything in here. website/README.md lists what that is
+    // and why each file is in it, so a stray file does not become a public URL.
+    "directory": "./website",
+
+    // An unmatched path gets 404.html with a real 404 status. This matters for
+    // search: returning a 200 with "not found" written on it is a soft 404, and
+    // Google treats those as thin pages.
+    "not_found_handling": "404-page"
+
+    // html_handling is left at its default, "auto-trailing-slash", which serves
+    // "/" from index.html and keeps "/index.html" out of the index. The canonical
+    // tag names "/" as the one address, so a request that arrives another way is
+    // still the same page to a crawler.
+
+    // run_worker_first is not set, so assets are served directly and no Worker
+    // code is invoked. If a Worker is ever added for redirects or response
+    // headers, it needs `binding: "ASSETS"` above and `run_worker_first` set to
+    // the routes it should handle.
+  }
+
+  // Custom domain. Uncomment and replace once the domain is settled, then run
+  // `npx wrangler deploy`. Without it the Worker is reachable at
+  // meterix.<your-subdomain>.workers.dev, which works but is not what should end
+  // up in a canonical tag.
+  //
+  // "routes": [{ "pattern": "meterix.dev", "custom_domain": true }]
+}

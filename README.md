@@ -196,7 +196,10 @@ thresholds and no copy for what a provider error means.
 
 `docs/PROJECT.md` is the longer document: data model, the reasoning behind
 decisions that would otherwise look arbitrary, and an honest list of gaps.
-`mockup/index.html` is the design reference, showing all three surfaces at once.
+
+The app design mockups are not in the repository. `mockup/` is ignored, so the
+reference for the three surfaces, and the two card files the share images are
+rendered from, live on the development machine only.
 
 ## Licence
 
@@ -211,8 +214,12 @@ crates/meterix-core/  the core: a library, plus a thin CLI called meterix-cli
 app/                  the desktop app
   src/                React dashboard, popover and settings
   src-tauri/          Tauri shell: windows, tray, notifications, poller
-website/              the landing page: one page, no build step, no dependencies
-mockup/index.html     the whole app on one page, as a design reference
+website/              the landing page: one page plus its fonts, no build step, no dependencies
 docs/PROJECT.md       design decisions, data model, known gaps
 Cargo.toml            one workspace: shared versions, one lockfile, one target/
 ```
+
+`mockup/` is not in that tree because it is not in the repository: `.gitignore`
+keeps the app mockups, and the two card files behind `og.png` and
+`apple-touch-icon.png`, on the development machine. Nothing is built or deployed
+from them, and both mockup pages are already behind what they describe.

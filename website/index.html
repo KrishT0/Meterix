@@ -1,500 +1,2769 @@
 <!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Meterix - LLM API credit tracker for your system tray</title>
-    <meta
-      name="description"
-      content="Track remaining LLM API credits from OpenRouter, DeepSeek, ElevenLabs and more in your system tray. Open source and local."
-    />
+<!--
+  Meterix landing page.
 
-    <!-- The reserved example.com host below stands in for the real origin. It is
+  Design read: developer-tool landing page for people who already pay several LLM
+  providers, dark and terminal-adjacent, in the app's own tokens rather than a
+  palette invented for the page. Dials VARIANCE 7 / MOTION 4 / DENSITY 4.
+
+  One file and three self-hosted fonts: no build step, no package manager, and no
+  third-party request at all. It opens from the file system and it hosts anywhere.
+  The script at the end of the body is the only JavaScript on the page and none of
+  it is load-bearing. Without it every line is already drawn, every figure is
+  already its real value, and the accordion is a plain details element.
+
+  Two things are deliberate and worth not "fixing" later:
+  1. There are no photographs. A tray utility's subject is its interface, so the
+     previews are the app's real markup at the app's real dimensions, which cannot
+     drift from the product the way a screenshot would.
+  2. The page is dark only, because the app is. A light landing page wrapped around
+     a dark product would be a different brand.
+
+  Three placeholders before it can be hosted, all documented in README.md: the
+  reserved example.com origin, the absent repository URL, and the missing og.png.
+-->
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>Meterix - LLM API credit tracker for your system tray</title>
+        <meta
+            name="description"
+            content="Track remaining LLM API credits from OpenRouter, DeepSeek, ElevenLabs and more in your system tray. Open source and local."
+        />
+
+        <!-- The reserved example.com host below stands in for the real origin. It is
          the one hostname that exists only for documentation, so a forgotten one
          cannot point at somebody else's site.
 
          It appears five times on this page: the canonical link, og:url,
          og:image, twitter:image and the JSON-LD url. It also appears in
          robots.txt and sitemap.xml. -->
-    <link rel="canonical" href="https://example.com/" />
-    <meta name="robots" content="index, follow" />
-    <meta name="author" content="Meterix" />
+        <link rel="canonical" href="https://example.com/" />
+        <meta name="robots" content="index, follow, max-image-preview:large" />
+        <meta name="author" content="Meterix" />
 
-    <meta property="og:type" content="website" />
-    <meta property="og:site_name" content="Meterix" />
-    <meta property="og:title" content="Meterix - LLM API credit tracker for your system tray" />
-    <meta
-      property="og:description"
-      content="Polls OpenRouter, CheaperInference, DeepSeek and ElevenLabs on a timer and shows the lowest balance in your tray. Free and local."
-    />
-    <meta property="og:url" content="https://example.com/" />
-    <!-- TODO: a 1200x630 PNG at this path. Social cards show text only until
+        <meta property="og:type" content="website" />
+        <meta property="og:site_name" content="Meterix" />
+        <meta
+            property="og:title"
+            content="Meterix - LLM API credit tracker for your system tray"
+        />
+        <meta
+            property="og:description"
+            content="Polls OpenRouter, CheaperInference, DeepSeek and ElevenLabs on a timer and shows the lowest balance in your tray. Free and local."
+        />
+        <meta property="og:url" content="https://example.com/" />
+        <!-- TODO: a 1200x630 PNG at this path. Social cards show text only until
          that file exists, which is the one asset this page still needs. -->
-    <meta property="og:image" content="https://example.com/og.png" />
-    <meta property="og:image:width" content="1200" />
-    <meta property="og:image:height" content="630" />
-    <meta property="og:image:alt" content="Meterix, showing the balance left with four LLM providers in a system tray." />
+        <meta property="og:image" content="https://example.com/og.png" />
+        <meta property="og:image:type" content="image/png" />
+        <meta property="og:image:width" content="1200" />
+        <meta property="og:image:height" content="630" />
+        <meta
+            property="og:image:alt"
+            content="Meterix, showing the balance left with four LLM providers in a system tray."
+        />
 
-    <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="Meterix - LLM API credit tracker for your system tray" />
-    <meta
-      name="twitter:description"
-      content="Polls OpenRouter, CheaperInference, DeepSeek and ElevenLabs on a timer and shows the lowest balance in your tray."
-    />
-    <meta name="twitter:image" content="https://example.com/og.png" />
+        <meta name="twitter:card" content="summary_large_image" />
+        <meta
+            name="twitter:title"
+            content="Meterix - LLM API credit tracker for your system tray"
+        />
+        <meta
+            name="twitter:description"
+            content="Polls OpenRouter, CheaperInference, DeepSeek and ElevenLabs on a timer and shows the lowest balance in your tray."
+        />
+        <meta name="twitter:image" content="https://example.com/og.png" />
+        <meta
+            name="twitter:image:alt"
+            content="Meterix showing four provider balances in a system tray window."
+        />
 
-    <meta name="theme-color" content="#131312" />
-    <meta name="color-scheme" content="dark" />
+        <meta name="theme-color" content="#131312" />
+        <meta name="color-scheme" content="dark" />
 
-    <!-- All three faces are used above the fold, so all three are fetched early
+        <!-- All three faces are used above the fold, so all three are fetched early
          rather than discovered late in the stylesheet. -->
-    <link
-      rel="preload"
-      href="fonts/space-grotesk-latin-wght-normal.woff2"
-      as="font"
-      type="font/woff2"
-      crossorigin
-    />
-    <link
-      rel="preload"
-      href="fonts/geist-latin-wght-normal.woff2"
-      as="font"
-      type="font/woff2"
-      crossorigin
-    />
-    <link
-      rel="preload"
-      href="fonts/geist-mono-latin-wght-normal.woff2"
-      as="font"
-      type="font/woff2"
-      crossorigin
-    />
+        <link
+            rel="preload"
+            href="fonts/space-grotesk-latin-wght-normal.woff2"
+            as="font"
+            type="font/woff2"
+            crossorigin
+        />
+        <link
+            rel="preload"
+            href="fonts/geist-latin-wght-normal.woff2"
+            as="font"
+            type="font/woff2"
+            crossorigin
+        />
+        <link
+            rel="preload"
+            href="fonts/geist-mono-latin-wght-normal.woff2"
+            as="font"
+            type="font/woff2"
+            crossorigin
+        />
 
-    <script type="application/ld+json">
-      {
-        "@context": "https://schema.org",
-        "@type": "SoftwareApplication",
-        "name": "Meterix",
-        "applicationCategory": "DeveloperApplication",
-        "applicationSubCategory": "API credit balance tracker",
-        "operatingSystem": "Windows",
-        "description": "A system tray app that polls LLM API providers on a timer and shows the lowest remaining balance.",
-        "url": "https://example.com/",
-        "isAccessibleForFree": true,
-        "license": "https://opensource.org/license/mit",
-        "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
-        "featureList": [
-          "Remaining balance for OpenRouter, CheaperInference, DeepSeek and ElevenLabs",
-          "API keys stored in the operating system keychain",
-          "A low balance threshold per provider",
-          "Tray icon coloured by the worst state across providers",
-          "History of every reading, charted over time"
-        ]
-      }
-    </script>
-    <link
-      rel="icon"
-      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Crect width='20' height='20' fill='%23131312'/%3E%3Crect x='3' y='4' width='14' height='2.8' rx='1' fill='%234DB6AC'/%3E%3Crect x='5.2' y='8.6' width='9.6' height='2.8' rx='1' fill='%234DB6AC'/%3E%3Crect x='7.4' y='13.2' width='5.2' height='2.8' rx='1' fill='%234DB6AC'/%3E%3C/svg%3E"
-    />
-    <link rel="stylesheet" href="styles.css" />
-  </head>
-  <body>
-    <!-- Design read: developer-tool landing page for people who already pay
-         several LLM providers, in a dark, terminal-adjacent language taken from
-         the product's own interface rather than invented for the page.
-         Dials: VARIANCE 6 / MOTION 4 / DENSITY 4.
+        <script type="application/ld+json">
+            {
+                "@context": "https://schema.org",
+                "@type": "SoftwareApplication",
+                "name": "Meterix",
+                "applicationCategory": "DeveloperApplication",
+                "applicationSubCategory": "API credit balance tracker",
+                "operatingSystem": "Windows",
+                "description": "A system tray app that polls LLM API providers on a timer and shows the lowest remaining balance.",
+                "url": "https://example.com/",
+                "isAccessibleForFree": true,
+                "license": "https://opensource.org/license/mit",
+                "offers": {
+                    "@type": "Offer",
+                    "price": "0",
+                    "priceCurrency": "USD"
+                },
+                "featureList": [
+                    "Remaining balance for OpenRouter, CheaperInference, DeepSeek and ElevenLabs",
+                    "API keys stored in the operating system keychain",
+                    "A low balance threshold per provider",
+                    "Tray icon coloured by the worst state across providers",
+                    "History of every reading, charted over time"
+                ]
+            }
+        </script>
+        <link
+            rel="icon"
+            href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Crect width='20' height='20' fill='%23131312'/%3E%3Crect x='3' y='4' width='14' height='2.8' rx='1' fill='%234DB6AC'/%3E%3Crect x='5.2' y='8.6' width='9.6' height='2.8' rx='1' fill='%234DB6AC'/%3E%3Crect x='7.4' y='13.2' width='5.2' height='2.8' rx='1' fill='%234DB6AC'/%3E%3C/svg%3E"
+        />
+        <!-- iOS ignores an SVG favicon, so this is drawn as a real PNG. Rendered from
+         mockup/touch-icon.html; see README.md. -->
+        <link
+            rel="apple-touch-icon"
+            href="apple-touch-icon.png"
+            sizes="180x180"
+        />
 
-         Two things are deliberate here and worth not "fixing" later:
-         1. There are no photographs. A tray utility's subject is its interface,
-            so the previews below are the app's real markup at the app's real
-            dimensions, which cannot drift from the product the way a screenshot
-            would.
-         2. The page is dark only, because the app is. A light landing page
-            wrapped around a dark product would be a different brand. -->
+        <!-- The same five questions the FAQ section asks, marked up so the answers are
+         machine-readable. Google stopped showing FAQ rich results for most sites in
+         2023, so treat this as structured data for other consumers (Bing, answer
+         engines, anything reading the page) rather than as a way into a rich result.
+         It must stay word for word identical to what the section says. -->
+        <script type="application/ld+json">
+            {
+                "@context": "https://schema.org",
+                "@type": "FAQPage",
+                "mainEntity": [
+                    {
+                        "@type": "Question",
+                        "name": "Do I need an admin key or a billing account?",
+                        "acceptedAnswer": {
+                            "@type": "Answer",
+                            "text": "No. All four providers report a balance to an ordinary key, which is the whole reason they are the four. Providers that need an admin key were audited and left out."
+                        }
+                    },
+                    {
+                        "@type": "Question",
+                        "name": "What happens if a key stops working?",
+                        "acceptedAnswer": {
+                            "@type": "Answer",
+                            "text": "The provider is marked rejected and the tray turns copper. Only a rejected key or a forbidden one raises a notification. A network blip is never treated as a broken key, because that would tell you to rotate something that works."
+                        }
+                    },
+                    {
+                        "@type": "Question",
+                        "name": "Does it keep checking when I close the window?",
+                        "acceptedAnswer": {
+                            "@type": "Answer",
+                            "text": "Yes. Closing the dashboard hides it; the tray keeps polling on its timer. Quitting is a separate action with its own label, because those are two different things and one button for both is how a tracker stops tracking without telling you."
+                        }
+                    },
+                    {
+                        "@type": "Question",
+                        "name": "Can it watch a provider I host myself?",
+                        "acceptedAnswer": {
+                            "@type": "Answer",
+                            "text": "If it speaks a shape Meterix already understands, yes, from the command line. A local gateway over plain HTTP is allowed for exactly that case. An API with a new response shape still needs code."
+                        }
+                    },
+                    {
+                        "@type": "Question",
+                        "name": "Where does my history go if I stop tracking a provider?",
+                        "acceptedAnswer": {
+                            "@type": "Answer",
+                            "text": "Nowhere. Switching a provider off stops the requests and keeps every reading it already collected, so turning it back on does not leave a gap in the chart."
+                        }
+                    }
+                ]
+            }
+        </script>
 
-    <nav class="nav">
-      <div class="wrap nav-inner">
-        <span class="brand">
-          <svg class="mark" width="17" height="17" viewBox="0 0 20 20" aria-hidden="true">
-            <rect x="1" y="3" width="18" height="3.4" rx="1" fill="#4DB6AC" />
-            <rect x="3.8" y="8.3" width="12.4" height="3.4" rx="1" fill="#4DB6AC" />
-            <rect x="6.8" y="13.6" width="6.4" height="3.4" rx="1" fill="#4DB6AC" />
-          </svg>
-          Meterix
-        </span>
-        <div class="nav-links">
-          <a href="#providers">Providers</a>
-          <a href="#surfaces" class="later">Surfaces</a>
-          <a href="#cost" class="later">Cost</a>
-          <a href="#limits" class="also-later">Limits</a>
-          <a href="#get-it">Get it</a>
-        </div>
-      </div>
-    </nav>
+        <script>
+            /* One class, added before anything paints: it is what lets the stylesheet hold
+         the chart's lines back until they are told to draw. Without it every line is
+         drawn from the first frame. */
+            document.documentElement.className += " js";
+        </script>
+        <style>
+            /* ---------- tokens, copied from the app's own stylesheet ---------- */
+            @font-face {
+                font-family: "Space Grotesk Variable";
+                font-style: normal;
+                font-display: swap;
+                font-weight: 300 700;
+                src: url("fonts/space-grotesk-latin-wght-normal.woff2")
+                    format("woff2-variations");
+            }
+            @font-face {
+                font-family: "Geist Variable";
+                font-style: normal;
+                font-display: swap;
+                font-weight: 100 900;
+                src: url("fonts/geist-latin-wght-normal.woff2")
+                    format("woff2-variations");
+            }
+            @font-face {
+                font-family: "Geist Mono Variable";
+                font-style: normal;
+                font-display: swap;
+                font-weight: 100 900;
+                src: url("fonts/geist-mono-latin-wght-normal.woff2")
+                    format("woff2-variations");
+            }
 
-    <!-- Hero. One headline, one sentence, two actions, and the product itself.
-         No eyebrow, no tagline under the buttons, no trust strip. -->
-    <header class="hero">
-      <div class="wrap hero-grid">
-        <div>
-          <h1 class="rise">All your LLM API credits. One tray icon.</h1>
-          <p class="hero-sub rise rise-2">
-            Meterix polls your LLM providers on a timer and puts the worst balance
-            in your system tray.
-          </p>
-          <div class="hero-actions rise rise-3">
-            <a class="btn btn-primary" href="#get-it">Get it</a>
-            <a class="btn btn-secondary" href="#providers">How it works</a>
-          </div>
-        </div>
+            :root {
+                --font-display:
+                    "Space Grotesk Variable", ui-sans-serif, system-ui,
+                    sans-serif;
+                --font-sans:
+                    "Geist Variable", ui-sans-serif, system-ui, sans-serif;
+                --font-mono: "Geist Mono Variable", ui-monospace, monospace;
 
-        <!-- The dashboard, drawn with the app's own tokens and geometry. -->
-        <div class="ui rise rise-2" role="img" aria-label="The Meterix dashboard: a total balance, two provider cards and a history table.">
-          <div class="ui-bar">
-            <svg class="mark" width="14" height="14" viewBox="0 0 20 20" aria-hidden="true">
-              <rect x="1" y="3" width="18" height="3.4" rx="1" fill="#E0A64B" />
-              <rect x="3.8" y="8.3" width="12.4" height="3.4" rx="1" fill="#E0A64B" />
-              <rect x="6.8" y="13.6" width="6.4" height="3.4" rx="1" fill="#E0A64B" />
-            </svg>
-            <span class="ui-title">Meterix</span>
-            <span class="ui-pill">1 running low</span>
-          </div>
+                --backdrop: #131312;
+                --surface: #1c1c1b;
+                --panel: #232322;
+                --inset: #1a1a19;
+                --line: #2e2e2c;
+                --line-strong: #3a3a37;
 
-          <div class="ui-body">
-            <div class="ui-figures">
-              <div>
-                <span class="label">Total balance</span>
-                <div class="ui-figure">$25.51</div>
-              </div>
-              <div>
-                <span class="label">Spent</span>
-                <div class="ui-figure dim">$31.44</div>
-              </div>
-              <div>
-                <span class="label">Low below</span>
-                <div class="ui-figure dim" style="font-size: 19px">$10.00</div>
-              </div>
+                --ink: #e9e7e2;
+                --ink-dim: #a8a69e;
+                /* 4.21:1 on the backdrop, so it is only ever used at 13px or larger, or for
+           type that is not read. Body copy is --ink-dim at 7.63:1. */
+                --ink-muted: #7a7871;
+
+                --amber: #e0a64b;
+                --amber-dim: #c8a24c;
+                --amber-line: #6a5220;
+                --teal: #4db6ac;
+                --copper: #d08a5c;
+
+                --r-window: 16px;
+                --r-card: 12px;
+                --r-control: 10px;
+                --r-pill: 999px;
+
+                --page: 1120px;
+                --gutter: 24px;
+            }
+
+            * {
+                box-sizing: border-box;
+            }
+
+            html {
+                height: 100%;
+                -webkit-text-size-adjust: 100%;
+            }
+
+            body {
+                margin: 0;
+                background: var(--backdrop);
+                color: var(--ink);
+                font-family: var(--font-sans);
+                font-size: 15px;
+                line-height: 1.6;
+                -webkit-font-smoothing: antialiased;
+            }
+
+            ::selection {
+                background: var(--amber-line);
+                color: var(--ink);
+            }
+
+            a {
+                color: inherit;
+                text-decoration: none;
+            }
+
+            :focus-visible {
+                outline: 2px solid var(--amber);
+                outline-offset: 3px;
+                border-radius: 4px;
+            }
+
+            h1,
+            h2,
+            h3 {
+                font-family: var(--font-display);
+                font-weight: 500;
+                letter-spacing: -0.02em;
+                margin: 0;
+            }
+
+            p {
+                margin: 0;
+            }
+
+            .wrap {
+                width: 100%;
+                max-width: var(--page);
+                margin: 0 auto;
+                padding: 0 var(--gutter);
+            }
+
+            /* The nav floats over the page, so a section scrolled to from a link has to
+         leave room for it or its heading arrives underneath the pill. */
+            [id] {
+                scroll-margin-top: 92px;
+            }
+
+            .label {
+                font-family: var(--font-mono);
+                font-size: 11px;
+                letter-spacing: 0.06em;
+                text-transform: uppercase;
+                color: var(--ink-muted);
+            }
+
+            .dim {
+                color: var(--ink-dim);
+            }
+
+            /* The one small mono label above a heading, used three times on the page and
+         nowhere else: it names which surface the heading is about. */
+            .kicker {
+                display: block;
+                font-family: var(--font-mono);
+                font-size: 11px;
+                letter-spacing: 0.08em;
+                text-transform: uppercase;
+                color: var(--teal);
+                margin-bottom: 10px;
+            }
+
+            /* ---------- nav: a floating pill, not a welded bar ---------- */
+            .nav {
+                position: fixed;
+                top: 18px;
+                left: 50%;
+                transform: translateX(-50%);
+                z-index: 40;
+                width: min(920px, calc(100% - 32px));
+                height: 52px;
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                padding: 0 8px 0 14px;
+                border: 1px solid var(--line);
+                border-radius: var(--r-pill);
+                background: rgba(20, 20, 19, 0.72);
+                backdrop-filter: blur(14px);
+                box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+            }
+
+            @media (prefers-reduced-transparency: reduce) {
+                .nav {
+                    background: var(--surface);
+                    backdrop-filter: none;
+                }
+            }
+
+            .brand {
+                display: flex;
+                align-items: center;
+                gap: 9px;
+                font-family: var(--font-display);
+                font-size: 15px;
+                letter-spacing: -0.01em;
+                white-space: nowrap;
+            }
+
+            .nav-links {
+                display: flex;
+                align-items: center;
+                gap: 22px;
+                margin: 0 auto;
+                font-size: 13px;
+                color: var(--ink-dim);
+            }
+
+            .nav-links a:hover {
+                color: var(--ink);
+            }
+
+            .nav-cta {
+                display: inline-flex;
+                align-items: center;
+                height: 36px;
+                padding: 0 16px;
+                border-radius: var(--r-pill);
+                background: var(--amber);
+                color: #201a0d;
+                font-family: var(--font-mono);
+                font-size: 12px;
+                font-weight: 700;
+                letter-spacing: 0.04em;
+                white-space: nowrap;
+            }
+
+            .nav-cta:hover {
+                background: #eab558;
+            }
+            .nav-cta:active {
+                transform: translateY(1px);
+            }
+
+            /* ---------- hero ----------
+
+         The hero is stacked rather than split: the copy, then the product at the
+         full width of the page.
+
+         It used to be a two-column grid with the window bleeding off the right of
+         the screen. That does not survive a wide monitor: the window ran past the
+         page's own right gutter, got sliced by the edge of the display, and the
+         dashboard inside it stretched across a thousand pixels with its figures
+         stranded out at the far right. Stacked, the window is exactly the width of
+         every other section, so nothing is cut and the preview is drawn at very
+         close to the app's real window width. The fold cuts it instead, which is
+         what the bottom of a real window looks like anyway. */
+            .hero {
+                padding: 132px 0 0;
+            }
+
+            h1 {
+                font-size: clamp(30px, 4.4vw, 48px);
+                line-height: 1.08;
+                max-width: 26ch;
+            }
+
+            .hero-sub {
+                margin-top: 20px;
+                font-size: 16px;
+                color: var(--ink-dim);
+                max-width: 56ch;
+            }
+
+            .hero-actions {
+                display: flex;
+                align-items: center;
+                gap: 20px;
+                margin-top: 30px;
+            }
+
+            .btn {
+                display: inline-flex;
+                align-items: center;
+                height: 42px;
+                padding: 0 20px;
+                border-radius: var(--r-control);
+                font-family: var(--font-mono);
+                font-size: 12px;
+                font-weight: 700;
+                letter-spacing: 0.04em;
+                white-space: nowrap;
+            }
+
+            .btn-primary {
+                background: var(--amber);
+                color: #201a0d;
+            }
+            .btn-primary:hover {
+                background: #eab558;
+            }
+            .btn-primary:active {
+                transform: translateY(1px);
+            }
+
+            .btn-quiet {
+                border: 1px solid var(--line-strong);
+                color: var(--ink-dim);
+            }
+
+            .btn-quiet:hover {
+                border-color: var(--ink-muted);
+                color: var(--ink);
+            }
+
+            .link-quiet {
+                font-family: var(--font-mono);
+                font-size: 12px;
+                letter-spacing: 0.04em;
+                color: var(--ink-dim);
+                border-bottom: 1px solid var(--line-strong);
+                padding-bottom: 2px;
+            }
+
+            .link-quiet:hover {
+                color: var(--ink);
+                border-color: var(--ink-muted);
+            }
+
+            /* The window is the width of the page, so it is never cut on the right and
+         nothing has to be hidden to make it fit. */
+            .hero-ui {
+                margin-top: 52px;
+            }
+
+            /* ---------- sections ---------- */
+            .section {
+                padding: 92px 0;
+            }
+
+            /* Grid children default to min-width: auto, which lets one long token (a path
+         like ~/.meterix/meterix.db, a terminal line) push a column wider than the
+         screen. */
+            .row > *,
+            .surface-split > *,
+            .privacy > *,
+            .cli > * {
+                min-width: 0;
+            }
+
+            .section h2 {
+                font-size: clamp(24px, 2.6vw, 33px);
+                line-height: 1.16;
+                max-width: 22ch;
+            }
+
+            .lede {
+                margin-top: 16px;
+                color: var(--ink-dim);
+                max-width: 62ch;
+            }
+
+            /* ---------- providers: four rows of what is actually read ---------- */
+            .providers {
+                margin-top: 44px;
+                display: grid;
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+                gap: 1px;
+                background: var(--line);
+                border: 1px solid var(--line);
+                border-radius: var(--r-card);
+                overflow: hidden;
+            }
+
+            .provider {
+                background: var(--surface);
+                padding: 20px 22px;
+            }
+
+            .provider-name {
+                display: flex;
+                align-items: center;
+                gap: 9px;
+                font-family: var(--font-display);
+                font-size: 17px;
+            }
+
+            .provider p {
+                margin-top: 8px;
+                font-size: 14px;
+                color: var(--ink-dim);
+                max-width: 40ch;
+            }
+
+            .basis {
+                display: inline-block;
+                margin-top: 14px;
+                font-family: var(--font-mono);
+                font-size: 11px;
+                letter-spacing: 0.05em;
+                text-transform: uppercase;
+                padding: 3px 8px;
+                border-radius: var(--r-pill);
+                border: 1px solid var(--line-strong);
+                color: var(--ink-muted);
+            }
+
+            .basis.money {
+                color: var(--teal);
+                border-color: #29564f;
+            }
+
+            .ui-dot {
+                width: 7px;
+                height: 7px;
+                border-radius: 50%;
+                flex: none;
+            }
+
+            .audited {
+                margin-top: 22px;
+                font-size: 13.5px;
+                color: var(--ink-muted);
+                max-width: 74ch;
+            }
+
+            .audited strong {
+                color: var(--ink-dim);
+                font-weight: 500;
+            }
+
+            /* ---------- how it reads: rows with a hairline between them ---------- */
+            .rows {
+                margin-top: 48px;
+            }
+
+            .row {
+                display: grid;
+                grid-template-columns: 132px minmax(0, 1fr) minmax(0, 1.1fr);
+                gap: 40px;
+                align-items: start;
+                padding: 34px 0;
+            }
+
+            /* One divider family: lines between rows, none above the group. */
+            .row + .row {
+                border-top: 1px solid var(--line);
+            }
+
+            .row .verb {
+                font-family: var(--font-mono);
+                font-size: 12px;
+                letter-spacing: 0.1em;
+                text-transform: uppercase;
+                color: var(--teal);
+                padding-top: 5px;
+            }
+
+            .row h3 {
+                font-size: 21px;
+                line-height: 1.24;
+                max-width: 18ch;
+            }
+
+            .row p {
+                color: var(--ink-dim);
+                font-size: 14.5px;
+                max-width: 52ch;
+            }
+
+            .states {
+                display: flex;
+                gap: 22px;
+                margin-top: 20px;
+                flex-wrap: wrap;
+            }
+
+            .state {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+            }
+
+            /* ---------- the three surfaces ---------- */
+            .surfaces {
+                margin-top: 48px;
+            }
+
+            .surface {
+                padding: 40px 0;
+            }
+
+            .surface + .surface {
+                border-top: 1px solid var(--line);
+            }
+
+            .surface h3 {
+                font-size: 21px;
+                line-height: 1.24;
+            }
+
+            .surface p {
+                margin-top: 12px;
+                color: var(--ink-dim);
+                font-size: 14.5px;
+                max-width: 46ch;
+            }
+
+            .surface-split {
+                display: grid;
+                grid-template-columns: minmax(0, 1fr) minmax(0, 380px);
+                gap: 64px;
+                align-items: center;
+            }
+
+            .surface-caption {
+                margin-top: 18px;
+                font-family: var(--font-mono);
+                font-size: 11.5px;
+                color: var(--ink-muted);
+                max-width: 46ch;
+            }
+
+            /* ---------- privacy: sticky head, claims scroll past it ---------- */
+            .privacy {
+                display: grid;
+                grid-template-columns: minmax(0, 360px) minmax(0, 1fr);
+                gap: 72px;
+                align-items: start;
+            }
+
+            .privacy-head {
+                position: sticky;
+                top: 104px;
+            }
+
+            .claim {
+                padding: 24px 0;
+            }
+
+            .claim + .claim {
+                border-top: 1px solid var(--line);
+            }
+
+            .claim:first-child {
+                padding-top: 0;
+            }
+
+            .claim h3 {
+                font-size: 17px;
+            }
+
+            .claim p {
+                margin-top: 9px;
+                color: var(--ink-dim);
+                font-size: 14.5px;
+                max-width: 58ch;
+            }
+
+            code,
+            .mono {
+                font-family: var(--font-mono);
+                font-size: 12.5px;
+                color: var(--ink);
+                background: var(--inset);
+                border: 1px solid var(--line);
+                border-radius: 5px;
+                padding: 1px 5px;
+                overflow-wrap: anywhere;
+            }
+
+            /* ---------- the CLI ---------- */
+            .cli {
+                display: grid;
+                grid-template-columns: minmax(0, 360px) minmax(0, 1fr);
+                gap: 72px;
+                align-items: start;
+            }
+
+            /* ---------- cost: one strip of four numbers, not four cards ---------- */
+            .metrics {
+                margin-top: 44px;
+                display: grid;
+                grid-template-columns: repeat(4, minmax(0, 1fr));
+            }
+
+            .metric {
+                padding-right: 24px;
+            }
+
+            .metric + .metric {
+                border-left: 1px solid var(--line);
+                padding-left: 24px;
+            }
+
+            .metric-value {
+                margin-top: 10px;
+                font-family: var(--font-mono);
+                font-size: 26px;
+                font-weight: 500;
+                letter-spacing: -0.02em;
+            }
+
+            .metric-note {
+                margin-top: 8px;
+                font-size: 13px;
+                color: var(--ink-muted);
+            }
+
+            /* ---------- limits: two grouped lists, one divider each ---------- */
+            .limits {
+                margin-top: 44px;
+                display: grid;
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+                gap: 56px;
+            }
+
+            .limit-group h3 {
+                font-size: 15px;
+                font-family: var(--font-mono);
+                font-weight: 400;
+                letter-spacing: 0.05em;
+                text-transform: uppercase;
+                color: var(--ink-muted);
+                padding-bottom: 14px;
+                border-bottom: 1px solid var(--line);
+            }
+
+            .limit-group ul {
+                margin: 0;
+                padding: 0;
+                list-style: none;
+            }
+
+            .limit-group li {
+                position: relative;
+                padding: 12px 0 12px 20px;
+                font-size: 14px;
+                color: var(--ink-dim);
+            }
+
+            .limit-group li::before {
+                content: "";
+                position: absolute;
+                left: 2px;
+                top: 21px;
+                width: 4px;
+                height: 4px;
+                border-radius: 50%;
+                background: var(--line-strong);
+            }
+
+            /* ---------- faq ---------- */
+            .faq {
+                max-width: 744px;
+                margin: 0 auto;
+                padding: 0 var(--gutter);
+            }
+
+            .faq h2 {
+                max-width: none;
+                text-align: center;
+            }
+
+            .faq-list {
+                margin-top: 36px;
+            }
+
+            details {
+                border-top: 1px solid var(--line);
+            }
+
+            details:last-of-type {
+                border-bottom: 1px solid var(--line);
+            }
+
+            summary {
+                display: flex;
+                align-items: center;
+                gap: 16px;
+                padding: 18px 2px;
+                cursor: pointer;
+                list-style: none;
+                font-family: var(--font-display);
+                font-size: 16px;
+            }
+
+            summary::-webkit-details-marker {
+                display: none;
+            }
+
+            summary:hover {
+                color: var(--amber);
+            }
+
+            summary .chev {
+                margin-left: auto;
+                flex: none;
+                display: block;
+                color: var(--ink-muted);
+                transition: transform 0.18s ease;
+            }
+
+            summary:hover .chev {
+                color: var(--amber);
+            }
+
+            details[open] summary .chev {
+                transform: rotate(180deg);
+            }
+
+            details .acc-body {
+                padding: 0 40px 20px 2px;
+                color: var(--ink-dim);
+                font-size: 14.5px;
+                overflow: hidden;
+            }
+
+            .faq-foot {
+                margin-top: 26px;
+                text-align: center;
+                font-size: 14px;
+                color: var(--ink-muted);
+            }
+
+            .faq-foot a {
+                color: var(--amber-dim);
+                border-bottom: 1px solid var(--amber-line);
+            }
+            .faq-foot a:hover {
+                color: var(--amber);
+            }
+
+            /* ---------- get it ---------- */
+            .get-it {
+                max-width: 760px;
+            }
+
+            .code {
+                margin-top: 28px;
+                border: 1px solid var(--line);
+                border-radius: var(--r-card);
+                background: var(--inset);
+                overflow: hidden;
+            }
+
+            .code pre {
+                margin: 0;
+                padding: 20px 22px;
+                font-family: var(--font-mono);
+                font-size: 12.5px;
+                line-height: 1.75;
+                color: var(--ink);
+                overflow-x: auto;
+            }
+
+            .code .c {
+                color: var(--ink-muted);
+            }
+            .code .k {
+                color: var(--amber);
+            }
+
+            .callout {
+                margin-top: 22px;
+                padding: 18px 20px;
+                border: 1px solid var(--amber-line);
+                border-radius: var(--r-card);
+                background: #201a10;
+            }
+
+            .callout h3 {
+                font-size: 15px;
+            }
+
+            .callout p {
+                margin-top: 8px;
+                font-size: 14px;
+                color: var(--ink-dim);
+            }
+
+            .after-code {
+                margin-top: 20px;
+                font-size: 14px;
+                color: var(--ink-dim);
+            }
+
+            /* ---------- closing band ---------- */
+            .closing {
+                padding: 96px 0 84px;
+                text-align: center;
+            }
+
+            .closing h2 {
+                max-width: 20ch;
+                margin: 0 auto;
+            }
+
+            .closing .lede {
+                margin: 18px auto 0;
+                max-width: 52ch;
+            }
+
+            .closing-actions {
+                margin-top: 30px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                gap: 24px;
+            }
+
+            /* ---------- footer ---------- */
+            .site-footer {
+                border-top: 1px solid var(--line);
+                padding: 52px 0 40px;
+            }
+
+            .footer-cols {
+                display: grid;
+                grid-template-columns: repeat(3, minmax(0, 1fr));
+                gap: 32px;
+                max-width: 760px;
+                margin: 0 auto;
+                text-align: center;
+            }
+
+            .footer-cols .footer-head {
+                display: block;
+                font-family: var(--font-mono);
+                font-size: 11px;
+                font-weight: 400;
+                letter-spacing: 0.12em;
+                text-transform: uppercase;
+                color: var(--ink-muted);
+                margin-bottom: 16px;
+            }
+
+            .footer-cols a {
+                display: block;
+                padding: 5px 0;
+                font-size: 13.5px;
+                color: var(--ink-dim);
+            }
+
+            .footer-cols a:hover {
+                color: var(--ink);
+            }
+
+            .footer-base {
+                margin-top: 46px;
+                padding-top: 26px;
+                border-top: 1px solid var(--line);
+                display: flex;
+                flex-wrap: wrap;
+                justify-content: center;
+                gap: 10px 28px;
+                font-size: 12.5px;
+                color: var(--ink-muted);
+                text-align: center;
+            }
+
+            /* ---------- the app, drawn with the app's own tokens ---------- */
+            .ui {
+                border: 1px solid var(--line);
+                border-radius: var(--r-window);
+                background: var(--surface);
+                overflow: hidden;
+                font-family: var(--font-mono);
+                font-size: 12.5px;
+            }
+
+            .ui-bar {
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                padding: 11px 14px;
+                border-bottom: 1px solid var(--line);
+                background: var(--panel);
+            }
+
+            .ui-bar.plain {
+                background: transparent;
+            }
+
+            .ui-title {
+                font-size: 12px;
+            }
+
+            .ui-pill {
+                margin-left: auto;
+                padding: 2px 9px;
+                border-radius: var(--r-pill);
+                background: #2a2113;
+                color: var(--amber);
+                font-size: 11px;
+            }
+
+            .ui-body {
+                padding: 16px;
+            }
+
+            .ui-figures {
+                display: grid;
+                grid-template-columns: repeat(3, minmax(0, 1fr));
+                gap: 16px;
+                padding-bottom: 16px;
+                border-bottom: 1px solid var(--line);
+            }
+
+            .ui-figure {
+                margin-top: 6px;
+                font-size: 23px;
+                letter-spacing: -0.02em;
+            }
+
+            .ui-figure.dim {
+                color: var(--ink-muted);
+            }
+
+            .ui-cards {
+                display: grid;
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+                gap: 12px;
+                margin-top: 16px;
+            }
+
+            .ui-card {
+                border: 1px solid var(--line);
+                border-radius: var(--r-card);
+                background: var(--inset);
+                padding: 13px 14px;
+            }
+
+            .ui-card.low {
+                border-color: var(--amber-line);
+            }
+
+            .ui-card-head {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                font-size: 12px;
+            }
+
+            .ui-card-figure {
+                margin-top: 12px;
+                font-size: 19px;
+            }
+            .ui-card-meta {
+                margin-top: 5px;
+                font-size: 11px;
+                color: var(--ink-muted);
+            }
+
+            .ui-chip {
+                display: inline-block;
+                margin-top: 11px;
+                padding: 2px 8px;
+                border-radius: var(--r-pill);
+                font-size: 10.5px;
+                letter-spacing: 0.04em;
+            }
+
+            .ui-chip.ok {
+                background: #1d2b28;
+                color: var(--teal);
+            }
+            .ui-chip.low {
+                background: #2a2113;
+                color: var(--amber);
+            }
+
+            .ui-table {
+                margin-top: 16px;
+            }
+
+            .ui-row {
+                display: grid;
+                grid-template-columns: 1.4fr 1.1fr 0.8fr 0.7fr;
+                gap: 12px;
+                align-items: center;
+                padding: 8px 0;
+                border-top: 1px solid var(--line);
+                font-size: 12px;
+            }
+
+            .ui-row.head {
+                border-top: 0;
+                padding-bottom: 6px;
+            }
+            .ui-num {
+                text-align: right;
+            }
+
+            .ui-row.pair {
+                grid-template-columns: 1fr auto;
+                border-top: 0;
+                padding: 9px 0;
+            }
+
+            .ui-popover {
+                width: 340px;
+            }
+            .ui-popover .ui-bar {
+                border-bottom: 0;
+                border-top: 1px solid var(--line);
+            }
+
+            .ui-chart {
+                display: block;
+                width: 100%;
+                height: auto;
+                margin-top: 18px;
+            }
+
+            .grid-line {
+                stroke: var(--line);
+                stroke-width: 1;
+            }
+
+            .axis-text {
+                font-family: var(--font-mono);
+                font-size: 11px;
+                fill: var(--ink-muted);
+            }
+
+            /* Three series, one per provider that reports money, in the same three hues
+         the provider cards use. ElevenLabs is deliberately not here: it is a
+         character allowance rather than money, so it is left out of a dollar chart
+         instead of being converted into a figure it is not. */
+            .series {
+                fill: none;
+                stroke-width: 2;
+                stroke-linecap: round;
+                stroke-linejoin: round;
+                vector-effect: non-scaling-stroke;
+            }
+
+            .series-dot,
+            .series-point {
+                vector-effect: non-scaling-stroke;
+            }
+
+            .series-point {
+                opacity: 0.9;
+            }
+
+            .legend {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 10px 26px;
+                margin: 0;
+                padding: 0;
+                list-style: none;
+            }
+
+            .legend li {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                font-size: 12px;
+                color: var(--ink-dim);
+            }
+
+            .legend b {
+                font-weight: 500;
+                color: var(--ink);
+            }
+
+            .chart-note {
+                margin-top: 14px;
+                font-size: 11.5px;
+                color: var(--ink-muted);
+                max-width: 64ch;
+            }
+
+            .ui-axis {
+                display: flex;
+                justify-content: space-between;
+                margin-top: 10px;
+                font-size: 10.5px;
+                color: var(--ink-muted);
+            }
+
+            /* The lines draw themselves left to right the first time the chart is seen.
+         pathLength="1" on each path means one dash covers the whole line, so no
+         length has to be measured and there is nothing to recalculate on resize. */
+            .js [data-draw] .series {
+                stroke-dasharray: 1;
+                stroke-dashoffset: 1;
+                transition: stroke-dashoffset 0.95s
+                    cubic-bezier(0.16, 1, 0.3, 1);
+                transition-delay: calc(var(--i, 0) * 110ms);
+            }
+
+            .js [data-draw].drawn .series {
+                stroke-dashoffset: 0;
+            }
+
+            .js [data-draw] .series-dot,
+            .js [data-draw] .series-point,
+            .js [data-draw] .legend b {
+                opacity: 0;
+                transition: opacity 0.4s ease;
+                transition-delay: calc(var(--i, 0) * 110ms + 620ms);
+            }
+
+            .js [data-draw].drawn .series-dot,
+            .js [data-draw].drawn .series-point,
+            .js [data-draw].drawn .legend b {
+                opacity: 1;
+            }
+
+            /* The four cost figures resolve out of scrambled digits rather than counting
+         up from zero, because these are sizes rather than totals. Tabular figures
+         keep the box from twitching while they do it. */
+            .metric-value {
+                font-variant-numeric: tabular-nums;
+            }
+
+            /* ---------- motion: CSS only, and only when it is wanted ---------- */
+            @keyframes rise {
+                from {
+                    opacity: 0;
+                    transform: translateY(12px);
+                }
+                to {
+                    opacity: 1;
+                    transform: none;
+                }
+            }
+
+            /* What a section does when a link in the nav brings you to it. The scroll
+         itself is the browser's (scroll-behavior below); this is the tell that you
+         have landed, and it plays on the section's own children so nothing moves
+         that was not asked to move. */
+            @keyframes settle {
+                from {
+                    opacity: 0;
+                    transform: translateY(10px);
+                }
+                to {
+                    opacity: 1;
+                    transform: none;
+                }
+            }
+
+            @media (prefers-reduced-motion: no-preference) {
+                html {
+                    scroll-behavior: smooth;
+                }
+
+                .rise {
+                    animation: rise 0.55s cubic-bezier(0.16, 1, 0.3, 1) both;
+                }
+                .rise-2 {
+                    animation-delay: 0.07s;
+                }
+                .rise-3 {
+                    animation-delay: 0.14s;
+                }
+
+                .arrive .wrap > *,
+                .arrive .faq > * {
+                    animation: settle 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+                }
+
+                .arrive .wrap > *:nth-child(2),
+                .arrive .faq > *:nth-child(2) {
+                    animation-delay: 0.06s;
+                }
+
+                .arrive .wrap > *:nth-child(3),
+                .arrive .faq > *:nth-child(3) {
+                    animation-delay: 0.12s;
+                }
+            }
+
+            /* The drawn state is the finished state, so reduced motion gets the drawn
+         chart immediately and the script has nothing to skip. */
+            @media (prefers-reduced-motion: reduce) {
+                .js [data-draw] .series {
+                    stroke-dasharray: none;
+                    stroke-dashoffset: 0;
+                    transition: none;
+                }
+
+                .js [data-draw] .series-dot,
+                .js [data-draw] .series-point,
+                .js [data-draw] .legend b {
+                    opacity: 1;
+                    transition: none;
+                }
+            }
+
+            /* ---------- honest fallbacks, declared per layout ---------- */
+            @media (max-width: 940px) {
+                .nav-links {
+                    display: none;
+                }
+                .nav {
+                    justify-content: space-between;
+                }
+                .row {
+                    grid-template-columns: minmax(0, 1fr);
+                    gap: 14px;
+                    padding: 28px 0;
+                }
+                .row .verb {
+                    padding-top: 0;
+                }
+                .row h3 {
+                    max-width: none;
+                }
+                .surface-split,
+                .privacy,
+                .cli {
+                    grid-template-columns: minmax(0, 1fr);
+                    gap: 32px;
+                }
+                .privacy-head {
+                    position: static;
+                }
+                .metrics,
+                .limits,
+                .providers,
+                .footer-cols {
+                    grid-template-columns: minmax(0, 1fr);
+                }
+                .metric + .metric {
+                    border-left: 0;
+                    border-top: 1px solid var(--line);
+                    padding-left: 0;
+                    padding-top: 20px;
+                    margin-top: 20px;
+                }
+                .limits {
+                    gap: 40px;
+                }
+                .providers {
+                    gap: 1px;
+                }
+                .ui-popover {
+                    width: 100%;
+                    max-width: 340px;
+                }
+                .section {
+                    padding: 68px 0;
+                }
+            }
+
+            @media (max-width: 620px) {
+                h1 {
+                    font-size: 30px;
+                }
+
+                .section h2,
+                .closing h2 {
+                    font-size: 23px;
+                }
+
+                .hero {
+                    padding-top: 104px;
+                }
+                .section {
+                    padding: 56px 0;
+                }
+                .closing {
+                    padding: 64px 0 56px;
+                }
+                .closing-actions {
+                    flex-direction: column;
+                    gap: 18px;
+                }
+                .hero-actions {
+                    flex-wrap: wrap;
+                }
+                .states {
+                    gap: 16px;
+                }
+                .audited {
+                    font-size: 13px;
+                }
+                .code pre {
+                    padding: 16px;
+                    font-size: 11.5px;
+                }
+
+                /* The chart keeps its shape and its legend here; the axis numbers would be
+           scaled down to about four pixels, and the legend already carries the
+           values, so they go. */
+                .axis-text {
+                    display: none;
+                }
+                .legend {
+                    gap: 8px 18px;
+                }
+                .legend li {
+                    font-size: 11.5px;
+                }
+
+                /* Four columns of monospace in a 330 pixel window is not a table. */
+                .ui-row:not(.pair) > :last-child {
+                    display: none;
+                }
+            }
+
+            /* The narrow end: about 350 pixels, which is the smallest screen still
+         worth designing for. Everything here is about buying back width rather
+         than shrinking type for its own sake. */
+            @media (max-width: 420px) {
+                :root {
+                    /* 24px of gutter on each side is 14% of a 350 pixel screen. */
+                    --gutter: 16px;
+                }
+
+                h1 {
+                    font-size: 27px;
+                }
+
+                .section h2,
+                .closing h2 {
+                    font-size: 21px;
+                }
+
+                .hero {
+                    padding-top: 96px;
+                }
+                .hero-ui {
+                    margin-top: 36px;
+                }
+                .hero-sub {
+                    font-size: 15px;
+                }
+
+                .row h3,
+                .surface h3,
+                .provider-name {
+                    font-size: 18px;
+                }
+
+                /* The dashboard's three figures cannot sit side by side at this width, and
+           shrinking them to fit would make the preview unreadable. Two of them on
+           the first row, the third below. */
+                .ui-figures {
+                    grid-template-columns: repeat(2, minmax(0, 1fr));
+                }
+                .ui-figure {
+                    font-size: 19px;
+                }
+                .ui-body {
+                    padding: 12px;
+                }
+                .ui-cards {
+                    grid-template-columns: minmax(0, 1fr);
+                }
+                .ui-card-figure {
+                    font-size: 17px;
+                }
+
+                .ui-row {
+                    grid-template-columns: 1.3fr 1fr 0.7fr;
+                    gap: 8px;
+                    font-size: 11px;
+                }
+                .ui-row.pair {
+                    grid-template-columns: 1fr auto;
+                }
+
+                .metric-value {
+                    font-size: 22px;
+                }
+                .metric-note {
+                    font-size: 12.5px;
+                }
+                .legend li {
+                    font-size: 11px;
+                }
+                .legend {
+                    gap: 7px 14px;
+                }
+                .chart-note {
+                    font-size: 11px;
+                }
+                .states {
+                    gap: 12px;
+                }
+                .states .label {
+                    font-size: 10px;
+                }
+                .code pre {
+                    font-size: 11px;
+                    padding: 14px 12px;
+                }
+                .acc-body {
+                    padding-right: 0;
+                }
+                .faq-foot {
+                    font-size: 13px;
+                }
+                .footer-base {
+                    font-size: 12px;
+                    gap: 8px 16px;
+                }
+                .audited,
+                .limit-group li {
+                    font-size: 13px;
+                }
+            }
+        </style>
+    </head>
+
+    <body id="top">
+        <nav class="nav">
+            <span class="brand">
+                <svg
+                    class="mark"
+                    width="17"
+                    height="17"
+                    viewBox="0 0 20 20"
+                    aria-hidden="true"
+                >
+                    <rect
+                        x="1"
+                        y="3"
+                        width="18"
+                        height="3.4"
+                        rx="1"
+                        fill="#4DB6AC"
+                    />
+                    <rect
+                        x="3.8"
+                        y="8.3"
+                        width="12.4"
+                        height="3.4"
+                        rx="1"
+                        fill="#4DB6AC"
+                    />
+                    <rect
+                        x="6.8"
+                        y="13.6"
+                        width="6.4"
+                        height="3.4"
+                        rx="1"
+                        fill="#4DB6AC"
+                    />
+                </svg>
+                Meterix
+            </span>
+            <div class="nav-links">
+                <a href="#providers">Providers</a>
+                <a href="#how">How it reads</a>
+                <a href="#surfaces">Surfaces</a>
+                <a href="#privacy">Privacy</a>
+                <a href="#limits">Limits</a>
             </div>
+            <a class="nav-cta" href="#get-it">Get it</a>
+        </nav>
 
-            <div class="ui-cards">
-              <div class="ui-card ok">
-                <div class="ui-card-head">
-                  <span class="ui-dot" style="background: #4db6ac"></span>
-                  OpenRouter
+        <header class="hero">
+            <div class="wrap">
+                <h1 class="rise">All your LLM API credits. One tray icon.</h1>
+                <p class="hero-sub rise rise-2">
+                    Meterix polls your LLM providers on a timer and puts the
+                    worst balance in your system tray.
+                </p>
+                <div class="hero-actions rise rise-3">
+                    <a class="btn btn-primary" href="#get-it">Get it</a>
+                    <a class="btn btn-quiet" href="#how">How it reads</a>
                 </div>
-                <div class="ui-card-figure">$18.42</div>
-                <div class="ui-card-meta">account balance · checked 4m ago</div>
-                <span class="ui-chip ok">healthy</span>
-              </div>
-              <div class="ui-card low">
-                <div class="ui-card-head">
-                  <span class="ui-dot" style="background: #e0a64b"></span>
-                  CheaperInference
+
+                <div class="hero-ui rise rise-2">
+                    <div
+                        class="ui"
+                        role="img"
+                        aria-label="The Meterix dashboard: a total balance, two provider cards and a table of the latest readings."
+                    >
+                        <div class="ui-bar">
+                            <svg
+                                width="14"
+                                height="14"
+                                viewBox="0 0 20 20"
+                                aria-hidden="true"
+                            >
+                                <rect
+                                    x="1"
+                                    y="3"
+                                    width="18"
+                                    height="3.4"
+                                    rx="1"
+                                    fill="#E0A64B"
+                                />
+                                <rect
+                                    x="3.8"
+                                    y="8.3"
+                                    width="12.4"
+                                    height="3.4"
+                                    rx="1"
+                                    fill="#E0A64B"
+                                />
+                                <rect
+                                    x="6.8"
+                                    y="13.6"
+                                    width="6.4"
+                                    height="3.4"
+                                    rx="1"
+                                    fill="#E0A64B"
+                                />
+                            </svg>
+                            <span class="ui-title">Meterix</span>
+                            <span class="ui-pill">1 running low</span>
+                        </div>
+
+                        <div class="ui-body">
+                            <div class="ui-figures">
+                                <div>
+                                    <span class="label">Total balance</span>
+                                    <div class="ui-figure">$25.51</div>
+                                </div>
+                                <div>
+                                    <span class="label">Spent</span>
+                                    <div class="ui-figure dim">$31.44</div>
+                                </div>
+                                <div>
+                                    <span class="label">Low below</span>
+                                    <div class="ui-figure dim">$10.00</div>
+                                </div>
+                            </div>
+
+                            <div class="ui-cards">
+                                <div class="ui-card">
+                                    <div class="ui-card-head">
+                                        <span
+                                            class="ui-dot"
+                                            style="background: #4db6ac"
+                                        ></span
+                                        >OpenRouter
+                                    </div>
+                                    <div class="ui-card-figure">$18.42</div>
+                                    <div class="ui-card-meta">
+                                        account balance · checked 4m ago
+                                    </div>
+                                    <span class="ui-chip ok">healthy</span>
+                                </div>
+                                <div class="ui-card low">
+                                    <div class="ui-card-head">
+                                        <span
+                                            class="ui-dot"
+                                            style="background: #e0a64b"
+                                        ></span
+                                        >CheaperInference
+                                    </div>
+                                    <div class="ui-card-figure">$7.09</div>
+                                    <div class="ui-card-meta">
+                                        account balance · checked 4m ago
+                                    </div>
+                                    <span class="ui-chip low"
+                                        >under $10.00</span
+                                    >
+                                </div>
+                            </div>
+
+                            <div class="ui-table">
+                                <div class="ui-row head">
+                                    <span class="label">Provider</span>
+                                    <span class="label">Basis</span>
+                                    <span class="label ui-num">Balance</span>
+                                    <span class="label ui-num">Checked</span>
+                                </div>
+                                <div class="ui-row">
+                                    <span>OpenRouter</span>
+                                    <span class="dim">account credits</span>
+                                    <span class="ui-num">18.42</span>
+                                    <span class="ui-num dim">4m</span>
+                                </div>
+                                <div class="ui-row">
+                                    <span>CheaperInference</span>
+                                    <span class="dim">account credits</span>
+                                    <span class="ui-num">7.09</span>
+                                    <span class="ui-num dim">4m</span>
+                                </div>
+                                <div class="ui-row">
+                                    <span>DeepSeek</span>
+                                    <span class="dim">prepaid balance</span>
+                                    <span class="ui-num">9.07</span>
+                                    <span class="ui-num dim">12m</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
-                <div class="ui-card-figure">$7.09</div>
-                <div class="ui-card-meta">account balance · checked 4m ago</div>
-                <span class="ui-chip low">under $10.00</span>
-              </div>
             </div>
+        </header>
 
-            <div class="ui-table">
-              <div class="ui-row head">
-                <span class="label">Provider</span>
-                <span class="label">Basis</span>
-                <span class="label ui-num">Balance</span>
-                <span class="label ui-num optional">Checked</span>
-              </div>
-              <div class="ui-row">
-                <span>OpenRouter</span>
-                <span class="dim">account credits</span>
-                <span class="ui-num">18.42</span>
-                <span class="ui-num dim optional">4m</span>
-              </div>
-              <div class="ui-row">
-                <span>CheaperInference</span>
-                <span class="dim">account credits</span>
-                <span class="ui-num">7.09</span>
-                <span class="ui-num dim optional">4m</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </header>
+        <main>
+            <!-- What it watches. First question a visitor has: does it cover mine. -->
+            <section class="section" id="providers">
+                <div class="wrap">
+                    <h2>Four providers, chosen because they answer</h2>
+                    <p class="lede">
+                        Meterix can only show what a provider is willing to
+                        report. These four say how much is left, which is a
+                        shorter list than it sounds like.
+                    </p>
 
-    <main>
-      <!-- How it works. Unequal columns on purpose: this is a sequence, not
-           three identical features. -->
-      <section class="section" id="how">
-        <div class="wrap">
-          <h2>It watches, so you do not have to</h2>
-          <div class="flow">
-            <div class="stage">
-              <h3>A key goes into your keychain</h3>
-              <p>
-                Paste a key once. Meterix checks it against the provider before
-                replacing anything, then hands it to the operating system's
-                keychain. It never reaches the database.
-              </p>
-            </div>
-            <div class="stage">
-              <h3>Each provider is read on a timer</h3>
-              <p>
-                Thirty minutes by default, or an interval you set for one provider
-                alone. A provider that rate-limits can be given hours without the
-                others waiting behind it.
-              </p>
-            </div>
-            <div class="stage">
-              <h3>The tray shows the worst state</h3>
-              <p>
-                Teal when everything is fine, amber when a balance is under your
-                threshold, copper when a key has stopped working. The icon is the
-                whole status line.
-              </p>
-              <div
-                class="states"
-                role="img"
-                aria-label="The tray icon in its three colours: teal for healthy, amber for a balance under the threshold, copper for a key that stopped working."
-              >
-                <span class="state">
-                  <svg class="mark" width="15" height="15" viewBox="0 0 20 20" aria-hidden="true">
-                    <rect x="1" y="3" width="18" height="3.4" rx="1" fill="#4DB6AC" />
-                    <rect x="3.8" y="8.3" width="12.4" height="3.4" rx="1" fill="#4DB6AC" />
-                    <rect x="6.8" y="13.6" width="6.4" height="3.4" rx="1" fill="#4DB6AC" />
-                  </svg>
-                  <span class="label">fine</span>
-                </span>
-                <span class="state">
-                  <svg class="mark" width="15" height="15" viewBox="0 0 20 20" aria-hidden="true">
-                    <rect x="1" y="3" width="18" height="3.4" rx="1" fill="#E0A64B" />
-                    <rect x="3.8" y="8.3" width="12.4" height="3.4" rx="1" fill="#E0A64B" />
-                    <rect x="6.8" y="13.6" width="6.4" height="3.4" rx="1" fill="#E0A64B" />
-                  </svg>
-                  <span class="label">low</span>
-                </span>
-                <span class="state">
-                  <svg class="mark" width="15" height="15" viewBox="0 0 20 20" aria-hidden="true">
-                    <rect x="1" y="3" width="18" height="3.4" rx="1" fill="#D08A5C" />
-                    <rect x="3.8" y="8.3" width="12.4" height="3.4" rx="1" fill="#D08A5C" />
-                    <rect x="6.8" y="13.6" width="6.4" height="3.4" rx="1" fill="#D08A5C" />
-                  </svg>
-                  <span class="label">key rejected</span>
-                </span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
+                    <div class="providers">
+                        <div class="provider">
+                            <h3 class="provider-name">
+                                <span
+                                    class="ui-dot"
+                                    style="background: #4db6ac"
+                                ></span
+                                >OpenRouter
+                            </h3>
+                            <p>
+                                Account balance, plus spend over the last 90
+                                days.
+                            </p>
+                            <span class="basis money">In dollars</span>
+                        </div>
+                        <div class="provider">
+                            <h3 class="provider-name">
+                                <span
+                                    class="ui-dot"
+                                    style="background: #7bc6d9"
+                                ></span
+                                >CheaperInference
+                            </h3>
+                            <p>
+                                Account balance, and the balance it
+                                auto-recharges at.
+                            </p>
+                            <span class="basis money">In dollars</span>
+                        </div>
+                        <div class="provider">
+                            <h3 class="provider-name">
+                                <span
+                                    class="ui-dot"
+                                    style="background: #a9d05c"
+                                ></span
+                                >DeepSeek
+                            </h3>
+                            <p>
+                                Prepaid balance, including any credit that was
+                                granted rather than bought.
+                            </p>
+                            <span class="basis money">In dollars</span>
+                        </div>
+                        <div class="provider">
+                            <h3 class="provider-name">
+                                <span
+                                    class="ui-dot"
+                                    style="background: #c79be0"
+                                ></span
+                                >ElevenLabs
+                            </h3>
+                            <p>
+                                A monthly character allowance, so it is counted
+                                in characters and kept out of the money total.
+                            </p>
+                            <span class="basis">Not money</span>
+                        </div>
+                    </div>
 
-      <!-- Providers. The audit is real: some APIs publish a balance and some do
-           not, which is the whole reason the list is this short. -->
-      <section class="section" id="providers">
-        <div class="wrap">
-          <h2>Four providers, chosen because they answer</h2>
-          <p class="section-lede">
-            Meterix can only show what a provider is willing to report. These four
-            say how much is left, and more can be added without rebuilding it when a
-            gateway speaks a shape Meterix already understands.
-          </p>
-
-          <div class="providers">
-            <div class="provider">
-              <h3 class="provider-name">
-                <span class="ui-dot" style="background: #4db6ac"></span>OpenRouter
-              </h3>
-              <p>Account balance, plus spend over the last 90 days.</p>
-              <span class="basis money">In dollars</span>
-            </div>
-            <div class="provider">
-              <h3 class="provider-name">
-                <span class="ui-dot" style="background: #7bc6d9"></span>CheaperInference
-              </h3>
-              <p>Account balance, and the balance it auto-recharges at.</p>
-              <span class="basis money">In dollars</span>
-            </div>
-            <div class="provider">
-              <h3 class="provider-name">
-                <span class="ui-dot" style="background: #a9d05c"></span>DeepSeek
-              </h3>
-              <p>Prepaid balance, including any credit that was granted rather than bought.</p>
-              <span class="basis money">In dollars</span>
-            </div>
-            <div class="provider">
-              <h3 class="provider-name">
-                <span class="ui-dot" style="background: #c79be0"></span>ElevenLabs
-              </h3>
-              <p>A monthly character allowance, so it is counted in characters and kept out of the money total.</p>
-              <span class="basis quota">Not money</span>
-            </div>
-          </div>
-
-          <p class="audited-out">
-            <strong>Audited and left out.</strong> OpenAI and Anthropic report
-            spending rather than a balance, and only through an admin key that an
-            individual account cannot always have. Groq reports neither. AWS
-            Bedrock has no balance endpoint at all, and signs requests instead of
-            accepting a key.
-          </p>
-        </div>
-      </section>
-
-      <!-- The three surfaces, at three different sizes. -->
-      <section class="section" id="surfaces">
-        <div class="wrap">
-          <h2>Three surfaces, one set of numbers</h2>
-
-          <div class="surfaces">
-            <div class="surface surface-wide">
-              <h3>The tray icon, for a glance</h3>
-              <p>
-                Left click opens a popover with every provider and its latest
-                reading. It disappears the moment it loses focus, the way a tray
-                popover should.
-              </p>
-              <div class="ui ui-popover" role="img" aria-label="The tray popover: two providers with their balances and a footer with the last check time.">
-                <div class="ui-body">
-                  <div class="ui-row pair">
-                    <span style="display: flex; align-items: center; gap: 7px">
-                      <span class="ui-dot" style="background: #4db6ac"></span>OpenRouter
-                    </span>
-                    <span class="ui-num">$18.42</span>
-                  </div>
-                  <div class="ui-row pair">
-                    <span style="display: flex; align-items: center; gap: 7px">
-                      <span class="ui-dot" style="background: #e0a64b"></span>CheaperInference
-                    </span>
-                    <span class="ui-num">$7.09</span>
-                  </div>
+                    <p class="audited">
+                        <strong>Audited and left out.</strong> OpenAI and
+                        Anthropic report spending rather than a balance, and
+                        only through an admin key that an individual account
+                        cannot always have. Groq reports neither. AWS Bedrock
+                        has no balance endpoint at all, and signs requests
+                        instead of accepting a key. A gateway that speaks a
+                        shape Meterix already understands can be added from the
+                        command line.
+                    </p>
                 </div>
-                <div class="ui-bar" style="border-bottom: 0; border-top: 1px solid var(--line)">
-                  <span class="label">checked 4m ago</span>
-                  <span class="label" style="margin-left: auto; color: var(--amber-dim)">refresh now</span>
+            </section>
+
+            <!-- The three steps. A sequence, so it gets rows rather than cards. -->
+            <section class="section" id="how">
+                <div class="wrap">
+                    <h2>It watches, so you do not have to</h2>
+
+                    <div class="rows">
+                        <div class="row">
+                            <span class="verb">Store</span>
+                            <h3>A key goes into your keychain</h3>
+                            <p>
+                                Paste a key once. Meterix checks it against the
+                                provider before replacing anything, then hands
+                                it to the operating system's keychain. It never
+                                reaches the database.
+                            </p>
+                        </div>
+
+                        <div class="row">
+                            <span class="verb">Read</span>
+                            <h3>Each provider is read on a timer</h3>
+                            <p>
+                                Thirty minutes by default, or an interval you
+                                set for one provider alone. A provider that
+                                rate-limits can be given hours without the
+                                others waiting behind it.
+                            </p>
+                        </div>
+
+                        <div class="row">
+                            <span class="verb">Report</span>
+                            <h3>The tray shows the worst state</h3>
+                            <div>
+                                <p>
+                                    Teal when everything is fine, amber when a
+                                    balance is under your threshold, copper when
+                                    a key has stopped working. The icon is the
+                                    whole status line, so a glance is enough.
+                                </p>
+                                <div
+                                    class="states"
+                                    role="img"
+                                    aria-label="The tray icon in its three colours: teal for healthy, amber for a balance under the threshold, copper for a key that stopped working."
+                                >
+                                    <span class="state">
+                                        <svg
+                                            width="15"
+                                            height="15"
+                                            viewBox="0 0 20 20"
+                                            aria-hidden="true"
+                                        >
+                                            <rect
+                                                x="1"
+                                                y="3"
+                                                width="18"
+                                                height="3.4"
+                                                rx="1"
+                                                fill="#4DB6AC"
+                                            />
+                                            <rect
+                                                x="3.8"
+                                                y="8.3"
+                                                width="12.4"
+                                                height="3.4"
+                                                rx="1"
+                                                fill="#4DB6AC"
+                                            />
+                                            <rect
+                                                x="6.8"
+                                                y="13.6"
+                                                width="6.4"
+                                                height="3.4"
+                                                rx="1"
+                                                fill="#4DB6AC"
+                                            />
+                                        </svg>
+                                        <span class="label">fine</span>
+                                    </span>
+                                    <span class="state">
+                                        <svg
+                                            width="15"
+                                            height="15"
+                                            viewBox="0 0 20 20"
+                                            aria-hidden="true"
+                                        >
+                                            <rect
+                                                x="1"
+                                                y="3"
+                                                width="18"
+                                                height="3.4"
+                                                rx="1"
+                                                fill="#E0A64B"
+                                            />
+                                            <rect
+                                                x="3.8"
+                                                y="8.3"
+                                                width="12.4"
+                                                height="3.4"
+                                                rx="1"
+                                                fill="#E0A64B"
+                                            />
+                                            <rect
+                                                x="6.8"
+                                                y="13.6"
+                                                width="6.4"
+                                                height="3.4"
+                                                rx="1"
+                                                fill="#E0A64B"
+                                            />
+                                        </svg>
+                                        <span class="label">low</span>
+                                    </span>
+                                    <span class="state">
+                                        <svg
+                                            width="15"
+                                            height="15"
+                                            viewBox="0 0 20 20"
+                                            aria-hidden="true"
+                                        >
+                                            <rect
+                                                x="1"
+                                                y="3"
+                                                width="18"
+                                                height="3.4"
+                                                rx="1"
+                                                fill="#D08A5C"
+                                            />
+                                            <rect
+                                                x="3.8"
+                                                y="8.3"
+                                                width="12.4"
+                                                height="3.4"
+                                                rx="1"
+                                                fill="#D08A5C"
+                                            />
+                                            <rect
+                                                x="6.8"
+                                                y="13.6"
+                                                width="6.4"
+                                                height="3.4"
+                                                rx="1"
+                                                fill="#D08A5C"
+                                            />
+                                        </svg>
+                                        <span class="label">key rejected</span>
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
-              </div>
-            </div>
+            </section>
 
-            <div class="surface">
-              <h3>The dashboard, for the detail</h3>
-              <p>
-                Every reading is stored, so the chart draws your balance over time
-                rather than a single number.
-              </p>
-            </div>
+            <!-- The three surfaces, composed three different ways. -->
+            <section class="section" id="surfaces">
+                <div class="wrap">
+                    <h2>Three surfaces, one set of numbers</h2>
 
-            <div class="surface">
-              <h3>Settings, for the rules</h3>
-              <p>
-                A low threshold per provider, its own interval, and a switch to
-                stop watching one without deleting its key or its history.
-              </p>
-              <div class="ui" role="img" aria-label="The settings provider table: each provider with its interval, threshold and a tracked switch.">
-                <div class="ui-body">
-                  <div class="ui-row rules head">
-                    <span class="label">Provider</span>
-                    <span class="label ui-num">Every</span>
-                    <span class="label ui-num">Low at</span>
-                    <span class="label ui-num">Tracked</span>
-                  </div>
-                  <div class="ui-row rules">
-                    <span>OpenRouter</span>
-                    <span class="ui-num dim">30m</span>
-                    <span class="ui-num">$10.00</span>
-                    <span class="ui-num" style="color: var(--amber)">on</span>
-                  </div>
-                  <div class="ui-row rules">
-                    <span>ElevenLabs</span>
-                    <span class="ui-num dim">30m</span>
-                    <span class="ui-num dim">-</span>
-                    <span class="ui-num" style="color: var(--amber)">on</span>
-                  </div>
+                    <div class="surfaces">
+                        <div class="surface surface-split">
+                            <div>
+                                <span class="kicker">tray</span>
+                                <h3>The tray popover, for a glance</h3>
+                                <p>
+                                    Left click opens a popover with every
+                                    tracked provider and its latest reading. It
+                                    closes the moment it loses focus, the way a
+                                    tray popover should, and it opens on the
+                                    first click.
+                                </p>
+                                <p class="surface-caption">
+                                    Shown at its real size: 340 by 420.
+                                </p>
+                            </div>
+
+                            <div
+                                class="ui ui-popover"
+                                role="img"
+                                aria-label="The tray popover: four providers with their latest readings, and a footer with the last check time."
+                            >
+                                <div class="ui-body">
+                                    <div class="ui-row pair">
+                                        <span
+                                            style="
+                                                display: flex;
+                                                align-items: center;
+                                                gap: 7px;
+                                            "
+                                        >
+                                            <span
+                                                class="ui-dot"
+                                                style="background: #4db6ac"
+                                            ></span
+                                            >OpenRouter
+                                        </span>
+                                        <span class="ui-num">$18.42</span>
+                                    </div>
+                                    <div class="ui-row pair">
+                                        <span
+                                            style="
+                                                display: flex;
+                                                align-items: center;
+                                                gap: 7px;
+                                            "
+                                        >
+                                            <span
+                                                class="ui-dot"
+                                                style="background: #7bc6d9"
+                                            ></span
+                                            >CheaperInference
+                                        </span>
+                                        <span
+                                            class="ui-num"
+                                            style="color: var(--amber)"
+                                            >$7.09</span
+                                        >
+                                    </div>
+                                    <div class="ui-row pair">
+                                        <span
+                                            style="
+                                                display: flex;
+                                                align-items: center;
+                                                gap: 7px;
+                                            "
+                                        >
+                                            <span
+                                                class="ui-dot"
+                                                style="background: #a9d05c"
+                                            ></span
+                                            >DeepSeek
+                                        </span>
+                                        <span
+                                            class="ui-num"
+                                            style="color: var(--amber)"
+                                            >$9.07</span
+                                        >
+                                    </div>
+                                    <div class="ui-row pair">
+                                        <span
+                                            style="
+                                                display: flex;
+                                                align-items: center;
+                                                gap: 7px;
+                                            "
+                                        >
+                                            <span
+                                                class="ui-dot"
+                                                style="background: #c79be0"
+                                            ></span
+                                            >ElevenLabs
+                                        </span>
+                                        <span class="ui-num"
+                                            >412k
+                                            <span class="dim">chars</span></span
+                                        >
+                                    </div>
+                                </div>
+                                <div class="ui-bar plain">
+                                    <span class="label">checked 4m ago</span>
+                                    <span
+                                        class="label"
+                                        style="
+                                            margin-left: auto;
+                                            color: var(--amber-dim);
+                                        "
+                                        >refresh now</span
+                                    >
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="surface">
+                            <span class="kicker">dashboard</span>
+                            <h3>The dashboard, for the detail</h3>
+                            <p>
+                                Every reading is kept, so you get the shape of
+                                the balance over time instead of one number that
+                                is already minutes old. The three providers that
+                                report money are drawn together. ElevenLabs is a
+                                character allowance rather than a balance, so it
+                                has no place on a dollar axis and is left off
+                                rather than converted into a figure it is not.
+                            </p>
+
+                            <div
+                                class="ui"
+                                style="margin-top: 28px"
+                                data-draw
+                                role="img"
+                                aria-label="The history view: OpenRouter, CheaperInference and DeepSeek over the last thirty days, in dollars."
+                            >
+                                <div class="ui-bar">
+                                    <span class="ui-title">History</span>
+                                    <span
+                                        class="label"
+                                        style="margin-left: auto"
+                                        >last 30 days</span
+                                    >
+                                </div>
+                                <div class="ui-body">
+                                    <ul class="legend">
+                                        <li style="--i: 0">
+                                            <span
+                                                class="ui-dot"
+                                                style="background: #4db6ac"
+                                            ></span
+                                            >OpenRouter <b>$18.42</b>
+                                        </li>
+                                        <li style="--i: 1">
+                                            <span
+                                                class="ui-dot"
+                                                style="background: #7bc6d9"
+                                            ></span
+                                            >CheaperInference <b>$7.09</b>
+                                        </li>
+                                        <li style="--i: 2">
+                                            <span
+                                                class="ui-dot"
+                                                style="background: #a9d05c"
+                                            ></span
+                                            >DeepSeek <b>$9.07</b>
+                                        </li>
+                                    </ul>
+
+                                    <svg
+                                        class="ui-chart"
+                                        viewBox="0 0 940 300"
+                                        role="presentation"
+                                    >
+                                        <line
+                                            class="grid-line"
+                                            x1="46"
+                                            y1="24"
+                                            x2="920"
+                                            y2="24"
+                                        />
+                                        <line
+                                            class="grid-line"
+                                            x1="46"
+                                            y1="94.7"
+                                            x2="920"
+                                            y2="94.7"
+                                        />
+                                        <line
+                                            class="grid-line"
+                                            x1="46"
+                                            y1="165.3"
+                                            x2="920"
+                                            y2="165.3"
+                                        />
+                                        <line
+                                            class="grid-line"
+                                            x1="46"
+                                            y1="236"
+                                            x2="920"
+                                            y2="236"
+                                        />
+                                        <text
+                                            class="axis-text"
+                                            x="38"
+                                            y="28"
+                                            text-anchor="end"
+                                        >
+                                            $30
+                                        </text>
+                                        <text
+                                            class="axis-text"
+                                            x="38"
+                                            y="98.7"
+                                            text-anchor="end"
+                                        >
+                                            $20
+                                        </text>
+                                        <text
+                                            class="axis-text"
+                                            x="38"
+                                            y="169.3"
+                                            text-anchor="end"
+                                        >
+                                            $10
+                                        </text>
+                                        <text
+                                            class="axis-text"
+                                            x="38"
+                                            y="240"
+                                            text-anchor="end"
+                                        >
+                                            $0
+                                        </text>
+
+                                        <path
+                                            class="series"
+                                            style="--i: 0"
+                                            stroke="#4db6ac"
+                                            pathLength="1"
+                                            d="M46 87.6 C70.3 91.1 94.7 92.3 119 98.2 C143.3 104.1 167.7 115.8 192 122.9 C216 129.9 240 140.6 264 140.6 C288.3 140.6 312.7 139.4 337 130 C361.3 120.6 385.7 98.2 410 84.1 C434.3 70 458.7 54 483 45.2 C507.3 36.4 531.7 31.1 556 31.1 C580.3 31.1 604.7 42.8 629 52.3 C653 61.7 677 79.4 701 87.6 C725.3 95.9 749.7 98.2 774 101.7 C798.3 105.2 822.7 108.8 847 108.8 C871.3 108.8 895.7 106.8 920 105.8"
+                                        />
+                                        <path
+                                            class="series"
+                                            style="--i: 1"
+                                            stroke="#7bc6d9"
+                                            pathLength="1"
+                                            d="M46 66.4 C70.3 69.9 94.7 72.3 119 77 C143.3 81.7 167.7 88.8 192 94.7 C216 100.5 240 112.3 264 112.3 C288.3 112.3 312.7 101.7 337 101.7 C361.3 101.7 385.7 113.5 410 119.4 C434.3 125.3 458.7 131.8 483 137.1 C507.3 142.4 531.7 151.2 556 151.2 C580.3 151.2 604.7 144.1 629 144.1 C653 144.1 677 156.9 701 161.8 C725.3 166.8 749.7 170.3 774 173.8 C798.3 177.3 822.7 181 847 183 C871.3 185 895.7 184.9 920 185.9"
+                                        />
+                                        <path
+                                            class="series"
+                                            style="--i: 2"
+                                            stroke="#a9d05c"
+                                            pathLength="1"
+                                            d="M46 158.3 C70.3 159.5 94.7 161.8 119 161.8 C143.3 161.8 167.7 159.7 192 159.7 C216 159.7 240 161.8 264 163.9 C288.3 166 312.7 172.4 337 172.4 C361.3 172.4 385.7 170.6 410 169.6 C434.3 168.6 458.7 166.7 483 166.7 C507.3 166.7 531.7 168.2 556 168.2 C580.3 168.2 604.7 166 629 166 C653 166 677 168.9 701 168.9 C725.3 168.9 749.7 167.5 774 167.5 C798.3 167.5 822.7 169.6 847 170.3 C871.3 171 895.7 171.4 920 171.9"
+                                        />
+                                    </svg>
+
+                                    <div class="ui-axis">
+                                        <span>30 days ago</span>
+                                        <span>15 days</span>
+                                        <span>now</span>
+                                    </div>
+
+                                    <p class="chart-note">
+                                        Dollars, thirty days. Each point is a
+                                        reading that was stored, not an average,
+                                        so a gap in the line is a check that did
+                                        not happen.
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="surface surface-split">
+                            <div>
+                                <span class="kicker">settings</span>
+                                <h3>Settings, for the rules</h3>
+                                <p>
+                                    A low threshold per provider, its own
+                                    interval, and a switch to stop watching one
+                                    without deleting its key or the history it
+                                    has already collected.
+                                </p>
+                            </div>
+
+                            <div
+                                class="ui"
+                                role="img"
+                                aria-label="The settings provider table: each provider with its interval, threshold and tracked switch."
+                            >
+                                <div class="ui-body">
+                                    <div class="ui-row head">
+                                        <span class="label">Provider</span>
+                                        <span class="label ui-num">Every</span>
+                                        <span class="label ui-num">Low at</span>
+                                        <span class="label ui-num">On</span>
+                                    </div>
+                                    <div class="ui-row">
+                                        <span>OpenRouter</span>
+                                        <span class="ui-num dim">30m</span>
+                                        <span class="ui-num">$10.00</span>
+                                        <span
+                                            class="ui-num"
+                                            style="color: var(--amber)"
+                                            >yes</span
+                                        >
+                                    </div>
+                                    <div class="ui-row">
+                                        <span>ElevenLabs</span>
+                                        <span class="ui-num dim">30m</span>
+                                        <span class="ui-num dim">-</span>
+                                        <span
+                                            class="ui-num"
+                                            style="color: var(--amber)"
+                                            >yes</span
+                                        >
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
+            </section>
 
-      <!-- Real measurements from the project's own records, labelled as coming
-           from one machine rather than presented as a specification. -->
-      <section class="section" id="cost">
-        <div class="wrap">
-          <h2>What it costs to leave running</h2>
-          <p class="section-lede">
-            Measured on a release build with two providers connected, ninety seconds
-            after launch. It is a tray app, so these are the numbers that matter.
-          </p>
+            <!-- Privacy. Every claim here was read out of the source, not written from
+           hope: the only outbound hosts in the core crate are the four provider
+           endpoints and any gateway base URL the user adds, and there is no
+           analytics, telemetry or updater dependency in any Cargo.toml. -->
+            <section class="section" id="privacy">
+                <div class="wrap privacy">
+                    <div class="privacy-head">
+                        <h2>What leaves this machine</h2>
+                        <p class="lede">
+                            One request per provider on a timer, and nothing
+                            else. That is a claim you should be able to check
+                            rather than believe, so it is worth knowing where
+                            each part of it lives in the code.
+                        </p>
+                    </div>
 
-          <div class="metrics">
-            <div>
-              <span class="label">Its own process</span>
-              <div class="metric-value">29 MB</div>
-              <p class="metric-note">The rest of the memory is the Edge runtime the window is drawn in.</p>
-            </div>
-            <div>
-              <span class="label">CPU while idle</span>
-              <div class="metric-value">0.4%</div>
-              <p class="metric-note">Of one core. At a 30 minute poll that is about 7 CPU-seconds a day.</p>
-            </div>
-            <div>
-              <span class="label">Database</span>
-              <div class="metric-value">~100 B</div>
-              <p class="metric-note">Per reading, so a few megabytes a year at the default rate.</p>
-            </div>
-            <div>
-              <span class="label">Release binary</span>
-              <div class="metric-value">15.8 MB</div>
-              <p class="metric-note">Nothing needs OpenSSL or a system crypto library.</p>
-            </div>
-          </div>
-        </div>
-      </section>
+                    <div>
+                        <div class="claim">
+                            <h3>
+                                Your keys go to the operating system keychain
+                            </h3>
+                            <p>
+                                A key is stored in the OS credential store, not
+                                in Meterix's own file. Before it replaces the
+                                key you already had, Meterix spends it on one
+                                real balance read, so a typo is refused instead
+                                of saved.
+                            </p>
+                        </div>
+                        <div class="claim">
+                            <h3>The database is one file you can move</h3>
+                            <p>
+                                It lives at
+                                <code>~/.meterix/meterix.db</code> and it is a
+                                single SQLite file. There is no server to run
+                                and no cloud copy. Settings shows you the path,
+                                and Change folder moves both the database and
+                                the export folder somewhere else.
+                            </p>
+                        </div>
+                        <div class="claim">
+                            <h3>The only requests are the balance reads</h3>
+                            <p>
+                                Four provider endpoints, plus the base URL of
+                                any gateway you add yourself. There is no
+                                account, no analytics and no update check. This
+                                is the kind of statement that is easy to write
+                                and hard to verify, so it is worth saying
+                                plainly: there is no analytics, telemetry or
+                                updater dependency anywhere in the project.
+                            </p>
+                        </div>
+                        <div class="claim">
+                            <h3>A key does not have to be stored at all</h3>
+                            <p>
+                                Set <code>OPENROUTER_KEY</code> in your
+                                environment, or the matching variable for any
+                                other provider, and Meterix reads it from there
+                                instead of asking you to paste anything.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            </section>
 
-      <!-- Grouped, not one bordered row per line. -->
-      <section class="section" id="limits">
-        <div class="wrap">
-          <h2>What it does not do</h2>
-          <p class="section-lede">
-            Worth reading before you rely on it. A balance watcher that overstates
-            itself is worse than none.
-          </p>
+            <!-- The CLI, because this product really has one. -->
+            <section class="section" id="cli">
+                <div class="wrap cli">
+                    <div>
+                        <h2>The same numbers from a terminal</h2>
+                        <p class="lede">
+                            The window is a view onto the database, not the
+                            thing that keeps it current. The command line reads
+                            and writes the same file, which is also how a
+                            provider gets added.
+                        </p>
+                    </div>
 
-          <div class="limits">
-            <div class="limit-group">
-              <h3>By design</h3>
-              <ul>
-                <li>It reads balances. It is not a cost calculator and not a proxy, so nothing you send to a provider goes through it.</li>
-                <li>There is no account, no cloud and no sync. The database is one file on your machine.</li>
-                <li>Four providers to start with, and more by configuration. Which providers are watched is data, and a gateway that speaks a shape Meterix already understands can be added from the command line. A provider whose API speaks a new shape is still a code change.</li>
-                <li>Open source, under MIT or Apache-2.0, so either half may be used on its own.</li>
-                <li>Desktop only. There is no mobile app and no web version.</li>
-              </ul>
-            </div>
-            <div class="limit-group">
-              <h3>Not finished yet</h3>
-              <ul>
-                <li>There is no installer. You build it from source, which the section below walks through.</li>
-                <li>Dark only. There is no light theme.</li>
-                <li>Windows is the only platform this has been run on. macOS and Linux are in the code and untested.</li>
-                <li>A DeepSeek account funded in yuan is refused rather than shown, because everything else here is compared against a dollar threshold.</li>
-              </ul>
-            </div>
-          </div>
-        </div>
-      </section>
+                    <div
+                        class="ui"
+                        role="img"
+                        aria-label="A sample terminal session: listing providers, adding a gateway, and fetching one provider's balance."
+                    >
+                        <div class="ui-bar">
+                            <svg
+                                width="14"
+                                height="14"
+                                viewBox="0 0 20 20"
+                                aria-hidden="true"
+                            >
+                                <rect
+                                    x="1"
+                                    y="3"
+                                    width="18"
+                                    height="3.4"
+                                    rx="1"
+                                    fill="#4DB6AC"
+                                />
+                                <rect
+                                    x="3.8"
+                                    y="8.3"
+                                    width="12.4"
+                                    height="3.4"
+                                    rx="1"
+                                    fill="#4DB6AC"
+                                />
+                                <rect
+                                    x="6.8"
+                                    y="13.6"
+                                    width="6.4"
+                                    height="3.4"
+                                    rx="1"
+                                    fill="#4DB6AC"
+                                />
+                            </svg>
+                            <span class="ui-title">meterix-cli</span>
+                        </div>
+                        <div
+                            class="code"
+                            style="margin: 0; border: 0; border-radius: 0"
+                        >
+                            <pre><span class="c">$ meterix-cli providers</span>
+provider           tracked   low at   every   since       readings
+OpenRouter         yes       $10.00     30m   2026-04-02       412
+CheaperInference   yes       $10.00     15m   2026-05-18       287
+DeepSeek           yes       $10.00     30m   2026-07-06        93
+ElevenLabs         yes           -      30m   2026-08-11        41
 
-      <section class="section" id="get-it">
-        <div class="wrap">
-          <h2>Get it</h2>
-          <div class="get-it" style="margin-top: 28px">
-            <div>
-              <p class="section-lede" style="margin-top: 0">
-                Clone the repository and build it. Rust 1.85 or newer, Node 22 or
-                newer, and WebView2, which Windows 11 already has. Nothing needs
-                OpenSSL.
-              </p>
-              <div class="code">
-                <pre><span class="c"># build and run</span>
+<span class="c">$ meterix-cli add-gateway orcarouter --shape openrouter_compatible \
+      --base-url https://api.orcarouter.ai/</span>
+orcarouter added: <span class="k">openrouter_compatible</span> shape at https://api.orcarouter.ai/
+give it a key with: meterix-cli set-key orcarouter &lt;key&gt;
+
+<span class="c">$ meterix-cli fetch deepseek</span>
+DeepSeek                    $9.07  account balance</pre>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Real measurements from the project's own records, and labelled as one
+           machine rather than presented as a specification. -->
+            <section class="section" id="cost">
+                <div class="wrap">
+                    <h2>What it costs to leave running</h2>
+                    <p class="lede">
+                        Measured on a release build with two providers
+                        connected, ninety seconds after launch. It is a tray
+                        app, so these are the numbers that matter.
+                    </p>
+
+                    <div class="metrics">
+                        <div class="metric">
+                            <span class="label">Its own process</span>
+                            <div class="metric-value">
+                                <span data-count="29">29</span> MB
+                            </div>
+                            <p class="metric-note">
+                                The rest of the memory is the webview the window
+                                is drawn in.
+                            </p>
+                        </div>
+                        <div class="metric">
+                            <span class="label">CPU while idle</span>
+                            <div class="metric-value">
+                                <span data-count="0.4">0.4</span>%
+                            </div>
+                            <p class="metric-note">
+                                Of one core. At a 30 minute poll that is about 7
+                                CPU-seconds a day.
+                            </p>
+                        </div>
+                        <div class="metric">
+                            <span class="label">Database</span>
+                            <div class="metric-value">
+                                ~<span data-count="100">100</span> B
+                            </div>
+                            <p class="metric-note">
+                                Per reading, so a few megabytes a year at the
+                                default rate.
+                            </p>
+                        </div>
+                        <div class="metric">
+                            <span class="label">Release binary</span>
+                            <div class="metric-value">
+                                <span data-count="15.8">15.8</span> MB
+                            </div>
+                            <p class="metric-note">
+                                Nothing needs OpenSSL or a system crypto
+                                library.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Grouped, not one bordered row per line. -->
+            <section class="section" id="limits">
+                <div class="wrap">
+                    <h2>What it does not do</h2>
+                    <p class="lede">
+                        Worth reading before you rely on it. A balance watcher
+                        that overstates itself is worse than none.
+                    </p>
+
+                    <div class="limits">
+                        <div class="limit-group">
+                            <h3>By design</h3>
+                            <ul>
+                                <li>
+                                    It reads balances. It is not a cost
+                                    calculator and not a proxy, so nothing you
+                                    send to a provider goes through it.
+                                </li>
+                                <li>
+                                    There is no account, no cloud and no sync.
+                                    The database is one file on your machine.
+                                </li>
+                                <li>
+                                    Four providers to start with, and more by
+                                    configuration. A gateway that speaks a shape
+                                    Meterix already understands can be added
+                                    from the command line. A provider whose API
+                                    speaks a new shape is still a code change.
+                                </li>
+                                <li>
+                                    Open source, under either MIT or Apache-2.0,
+                                    whichever you prefer.
+                                </li>
+                                <li>
+                                    Desktop only. There is no mobile app and no
+                                    web version.
+                                </li>
+                            </ul>
+                        </div>
+                        <div class="limit-group">
+                            <h3>Not finished yet</h3>
+                            <ul>
+                                <li>
+                                    There is no installer. You build it from
+                                    source, which the section below walks
+                                    through.
+                                </li>
+                                <li>Dark only. There is no light theme.</li>
+                                <li>
+                                    Windows is the only platform this has been
+                                    run on. macOS and Linux are in the code and
+                                    untested.
+                                </li>
+                                <li>
+                                    A DeepSeek account funded in yuan is refused
+                                    rather than shown, because everything else
+                                    here is compared against a dollar threshold.
+                                </li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <section class="section" id="faq">
+                <div class="faq">
+                    <h2>Questions this raises</h2>
+
+                    <div class="faq-list">
+                        <details open>
+                            <summary>
+                                Do I need an admin key or a billing account?
+                                <svg
+                                    class="chev"
+                                    width="15"
+                                    height="15"
+                                    viewBox="0 0 20 20"
+                                    aria-hidden="true"
+                                >
+                                    <path
+                                        d="M5 7.5l5 5 5-5"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        stroke-width="1.7"
+                                        stroke-linecap="round"
+                                        stroke-linejoin="round"
+                                    />
+                                </svg>
+                            </summary>
+                            <p class="acc-body">
+                                No. All four providers report a balance to an
+                                ordinary key, which is the whole reason they are
+                                the four. Providers that need an admin key were
+                                audited and left out.
+                            </p>
+                        </details>
+                        <details>
+                            <summary>
+                                What happens if a key stops working?
+                                <svg
+                                    class="chev"
+                                    width="15"
+                                    height="15"
+                                    viewBox="0 0 20 20"
+                                    aria-hidden="true"
+                                >
+                                    <path
+                                        d="M5 7.5l5 5 5-5"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        stroke-width="1.7"
+                                        stroke-linecap="round"
+                                        stroke-linejoin="round"
+                                    />
+                                </svg>
+                            </summary>
+                            <p class="acc-body">
+                                The provider is marked rejected and the tray
+                                turns copper. Only a rejected key or a forbidden
+                                one raises a notification. A network blip is
+                                never treated as a broken key, because that
+                                would tell you to rotate something that works.
+                            </p>
+                        </details>
+                        <details>
+                            <summary>
+                                Does it keep checking when I close the window?
+                                <svg
+                                    class="chev"
+                                    width="15"
+                                    height="15"
+                                    viewBox="0 0 20 20"
+                                    aria-hidden="true"
+                                >
+                                    <path
+                                        d="M5 7.5l5 5 5-5"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        stroke-width="1.7"
+                                        stroke-linecap="round"
+                                        stroke-linejoin="round"
+                                    />
+                                </svg>
+                            </summary>
+                            <p class="acc-body">
+                                Yes. Closing the dashboard hides it; the tray
+                                keeps polling on its timer. Quitting is a
+                                separate action with its own label, because
+                                those are two different things and one button
+                                for both is how a tracker stops tracking without
+                                telling you.
+                            </p>
+                        </details>
+                        <details>
+                            <summary>
+                                Can it watch a provider I host myself?
+                                <svg
+                                    class="chev"
+                                    width="15"
+                                    height="15"
+                                    viewBox="0 0 20 20"
+                                    aria-hidden="true"
+                                >
+                                    <path
+                                        d="M5 7.5l5 5 5-5"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        stroke-width="1.7"
+                                        stroke-linecap="round"
+                                        stroke-linejoin="round"
+                                    />
+                                </svg>
+                            </summary>
+                            <p class="acc-body">
+                                If it speaks a shape Meterix already
+                                understands, yes, from the command line. A local
+                                gateway over plain HTTP is allowed for exactly
+                                that case. An API with a new response shape
+                                still needs code.
+                            </p>
+                        </details>
+                        <details>
+                            <summary>
+                                Where does my history go if I stop tracking a
+                                provider?
+                                <svg
+                                    class="chev"
+                                    width="15"
+                                    height="15"
+                                    viewBox="0 0 20 20"
+                                    aria-hidden="true"
+                                >
+                                    <path
+                                        d="M5 7.5l5 5 5-5"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        stroke-width="1.7"
+                                        stroke-linecap="round"
+                                        stroke-linejoin="round"
+                                    />
+                                </svg>
+                            </summary>
+                            <p class="acc-body">
+                                Nowhere. Switching a provider off stops the
+                                requests and keeps every reading it already
+                                collected, so turning it back on does not leave
+                                a gap in the chart.
+                            </p>
+                        </details>
+                    </div>
+
+                    <p class="faq-foot">
+                        More questions?
+                        <a href="#limits"
+                            >The limits section is the honest list</a
+                        >.
+                    </p>
+                </div>
+            </section>
+
+            <section class="section" id="get-it">
+                <div class="wrap get-it">
+                    <h2>Get it</h2>
+                    <p class="lede">
+                        Clone the repository and build it. Rust 1.85 or newer,
+                        Node 22 or newer, and WebView2, which Windows 11 already
+                        has. Nothing needs OpenSSL.
+                    </p>
+
+                    <div class="code">
+                        <pre><span class="c"># build and run</span>
 git clone <span class="k">&lt;repository&gt;</span> meterix
 cd meterix/app
 npm install
@@ -502,51 +2771,277 @@ npm run tauri dev
 
 <span class="c"># release build</span>
 npm run tauri build</pre>
-              </div>
-              <!-- The repository is not published yet. When it is, replace the
-                   sentence below with:
-                     <a class="repo-link" href="THE URL">Source on GitHub</a>
-                   That style is already in the stylesheet. This used to be an
-                   anchor pointing at its own section, which read as a broken
-                   link. -->
-              <p style="margin-top: 20px" class="dim">
-                The repository link will go here once it is published.
-              </p>
+                    </div>
+
+                    <div class="callout">
+                        <h3>No installer yet</h3>
+                        <p>
+                            There is no download, and this page will not pretend
+                            otherwise. The bundler needs to fetch NSIS on first
+                            use and that download has not completed in the
+                            environment this was built in, so no installer has
+                            ever been produced. When there is one, it will
+                            appear here.
+                        </p>
+                    </div>
+
+                    <p class="after-code">
+                        Use <code>npm run tauri build</code> rather than a plain
+                        cargo build. A bare release build produces a binary that
+                        loads the development server, so it opens an error page
+                        with no JavaScript running at all. It looks like it
+                        worked.
+                    </p>
+                </div>
+            </section>
+
+            <section class="closing">
+                <div class="wrap">
+                    <h2>Nothing to sign up for.</h2>
+                    <p class="lede">
+                        No account, no free tier, no card. It is a tray icon
+                        that reads four balances you already pay for.
+                    </p>
+                    <div class="closing-actions">
+                        <a class="btn btn-primary" href="#get-it">Get it</a>
+                        <a class="link-quiet" href="#limits">Read the limits</a>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <footer class="site-footer">
+            <div class="wrap">
+                <div class="footer-cols">
+                    <div>
+                        <span class="footer-head">Product</span>
+                        <a href="#providers">Providers</a>
+                        <a href="#surfaces">Surfaces</a>
+                        <a href="#cli">Command line</a>
+                    </div>
+                    <div>
+                        <span class="footer-head">Facts</span>
+                        <a href="#privacy">Privacy</a>
+                        <a href="#cost">Cost</a>
+                        <a href="#limits">Limits</a>
+                    </div>
+                    <div>
+                        <span class="footer-head">Get it</span>
+                        <a href="#get-it">Build from source</a>
+                        <a href="#faq">Questions</a>
+                    </div>
+                </div>
+
+                <div class="footer-base">
+                    <span
+                        >Meterix. Local first, keys in the operating system
+                        keychain, MIT or Apache-2.0.</span
+                    >
+                    <span
+                        >Independent project. Not affiliated with any provider
+                        named on this page.</span
+                    >
+                </div>
             </div>
+        </footer>
+        <script>
+            /* Three small things, in one script and no dependencies: the chart draws its
+         lines the first time it is seen, the cost figures resolve out of scrambled
+         digits, and the accordion animates instead of jumping.
 
-            <div>
-              <div class="not-built">
-                <span class="label">No installer yet</span>
-                <p>
-                  There is no download, and this page will not pretend otherwise.
-                  The bundler needs to fetch NSIS on first use and that download
-                  has not completed in the environment this was built in, so no
-                  installer has ever been produced. When there is one, it will
-                  appear here.
-                </p>
-              </div>
+         None of it is load-bearing. Without JavaScript every line is already drawn,
+         every figure is already its real value, and the accordion still opens and
+         closes, because that is what a details element does. */
+            (function () {
+                var still = window.matchMedia(
+                    "(prefers-reduced-motion: reduce)",
+                ).matches;
 
-              <p class="section-lede">
-                Use <code>npm run tauri build</code> rather than a plain cargo
-                build. A bare release build produces a binary that loads the
-                development server, so it opens an error page with no JavaScript
-                running at all. It looks like it worked.
-              </p>
-            </div>
-          </div>
-        </div>
-      </section>
-    </main>
+                function onFirstView(el, run) {
+                    if (still || !window.IntersectionObserver) {
+                        run(true);
+                        return;
+                    }
+                    var observer = new IntersectionObserver(
+                        function (entries) {
+                            for (var i = 0; i < entries.length; i++) {
+                                if (entries[i].isIntersecting) {
+                                    observer.disconnect();
+                                    run(false);
+                                    return;
+                                }
+                            }
+                        },
+                        { threshold: 0.3 },
+                    );
+                    observer.observe(el);
+                }
 
-    <footer class="site-footer">
-      <div class="wrap footer">
-        <span>Meterix. Local first, your keys stay in the operating system keychain, and the code is MIT or Apache-2.0.</span>
-        <div class="footer-links">
-          <a href="#providers">Providers</a>
-          <a href="#limits">Limits</a>
-          <a href="#get-it">Get it</a>
-        </div>
-      </div>
-    </footer>
-  </body>
+                /* The lines. The starting state and the transition are both in the
+           stylesheet; this only says when. */
+                var chart = document.querySelector("[data-draw]");
+                if (chart) {
+                    onFirstView(chart, function () {
+                        chart.classList.add("drawn");
+                    });
+                }
+
+                /* The cost figures. Random digits, locking from left to right, so the last
+           character to settle is the one that matters least. A decimal point is
+           never scrambled, and the value ends exactly as the markup had it. */
+                var figures = document.querySelectorAll("[data-count]");
+                Array.prototype.forEach.call(figures, function (el) {
+                    var value = el.getAttribute("data-count");
+                    onFirstView(el, function (instant) {
+                        if (instant) {
+                            el.textContent = value;
+                            return;
+                        }
+                        var start = performance.now();
+                        var duration = 1100;
+                        (function frame(now) {
+                            var t = Math.min(1, (now - start) / duration);
+                            var settled = t * 1.3 - 0.3;
+                            var shown = "";
+                            for (var i = 0; i < value.length; i++) {
+                                var locked = i / value.length <= settled;
+                                shown +=
+                                    locked || value[i] === "."
+                                        ? value[i]
+                                        : String(
+                                              Math.floor(Math.random() * 10),
+                                          );
+                            }
+                            el.textContent = shown;
+                            if (t < 1) {
+                                requestAnimationFrame(frame);
+                            } else {
+                                el.textContent = value;
+                            }
+                        })(start);
+                    });
+                });
+
+                /* The accordion. A details element cannot animate its own content, so the
+           click is taken over: the element is opened or closed at the end of an
+           animation on the answer itself. Reduced motion and no-JavaScript both keep
+           the plain behaviour. */
+                Array.prototype.forEach.call(
+                    document.querySelectorAll("details"),
+                    function (details) {
+                        var summary = details.querySelector("summary");
+                        var body = details.querySelector(".acc-body");
+                        if (!summary || !body) {
+                            return;
+                        }
+
+                        var current = null; // the in-flight animation, if any
+                        var expanded = details.open; // logical state, flips immediately on click,
+                        // unlike details.open which lags during close
+
+                        summary.addEventListener("click", function (event) {
+                            event.preventDefault();
+                            if (still) {
+                                details.open = !details.open;
+                                expanded = details.open;
+                                return;
+                            }
+
+                            // Kill whatever's still running so its onfinish can't fire late
+                            // and stomp on the state the new click is about to set.
+                            if (current) {
+                                current.cancel();
+                                current = null;
+                            }
+
+                            var pad =
+                                parseFloat(
+                                    getComputedStyle(body).paddingBottom,
+                                ) || 0;
+                            var options = {
+                                duration: 240,
+                                easing: "cubic-bezier(0.16, 1, 0.3, 1)",
+                            };
+
+                            if (expanded) {
+                                expanded = false;
+                                var fromHeight = body.offsetHeight; // live value, correct even mid-animation
+                                var fromPad =
+                                    getComputedStyle(body).paddingBottom;
+                                var closing = body.animate(
+                                    [
+                                        {
+                                            height: fromHeight + "px",
+                                            paddingBottom: fromPad,
+                                        },
+                                        { height: "0px", paddingBottom: "0px" },
+                                    ],
+                                    {
+                                        duration: options.duration,
+                                        easing: options.easing,
+                                        fill: "forwards",
+                                    },
+                                );
+                                current = closing;
+                                closing.onfinish = function () {
+                                    details.open = false;
+                                    closing.cancel();
+                                    current = null;
+                                };
+                            } else {
+                                expanded = true;
+                                details.open = true;
+                                var opening = body.animate(
+                                    [
+                                        { height: "0px", paddingBottom: "0px" },
+                                        {
+                                            height: body.offsetHeight + "px",
+                                            paddingBottom: pad + "px",
+                                        },
+                                    ],
+                                    options,
+                                );
+                                current = opening;
+                                opening.onfinish = function () {
+                                    current = null;
+                                };
+                            }
+                        });
+                    },
+                );
+
+                /* Arriving somewhere from a link. The scroll is the browser's, and the
+           animation is the stylesheet's; all this does is decide when to put the
+           class on, and take it off again so a second click on the same link plays
+           it a second time. Flushing layout between the two is what makes the
+           restarted animation actually restart. */
+                Array.prototype.forEach.call(
+                    document.querySelectorAll('a[href^="#"]'),
+                    function (link) {
+                        link.addEventListener("click", function () {
+                            var id = link.getAttribute("href").slice(1);
+                            if (!id) {
+                                return;
+                            }
+                            var target = document.getElementById(id);
+                            var section =
+                                target &&
+                                (target.classList.contains("section")
+                                    ? target
+                                    : target.closest(".section"));
+                            if (!section || still) {
+                                return;
+                            }
+                            section.classList.remove("arrive");
+                            void section.offsetWidth;
+                            section.classList.add("arrive");
+                            window.setTimeout(function () {
+                                section.classList.remove("arrive");
+                            }, 1400);
+                        });
+                    },
+                );
+            })();
+        </script>
+    </body>
 </html>

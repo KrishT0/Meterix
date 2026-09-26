@@ -61,12 +61,14 @@ crates/meterix-core/  the core: a library plus a CLI front end, `meterix-cli`
 app/                  the desktop app
   src/                React dashboard
   src-tauri/          Tauri shell, the only place that knows about both sides
-website/              the landing page: one page, no build step, no dependencies
-mockup/index.html     the whole app on one page, and the proposed colour revamp:
-                      ten identity shades, cards tinted by provider, status by chip
+website/              the landing page: one page plus its fonts, no build step, no dependencies
 docs/PROJECT.md       this document
 Cargo.toml            one workspace over both crates
 ```
+
+The `mockup/` directory is not in the repository. `.gitignore` keeps it local: the
+app mockups and the two card files the share images are rendered from are design
+work, not something anything is built or deployed from.
 
 The core is a library with a thin CLI, and the Tauri shell is a third entry
 point over the same library.
@@ -83,13 +85,14 @@ features of its own on top of a workspace version, which is how `meterix-core`
 gets `tokio`'s full feature set while the app takes only what its poller needs.
 
 **The landing page shares the app's tokens rather than copying its look.** The
-`website/` directory holds one HTML page, one stylesheet and two self-hosted
-fonts, with no build step and no third-party request. Its colour tokens, radius
+`website/` directory holds one HTML page and three self-hosted fonts, with no build
+step, no stylesheet of its own and no third-party request. Its colour tokens, radius
 scale and fonts are copied from the app's own stylesheet, and its figures come
 from the footprint records below, so the page cannot claim a number the project
 has not measured. Its previews are the app's real markup at the app's real
 dimensions rather than screenshots, which is the difference between a preview
-that ages and one that cannot drift.
+that ages and one that cannot drift. The page it replaced was moved out of the
+repository to `website-backup/` rather than deleted.
 
 ## Running it
 
