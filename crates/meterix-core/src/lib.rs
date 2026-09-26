@@ -782,6 +782,46 @@ pub fn add_gateway(
     Ok(())
 }
 
+/// Remove a provider that was added as a row.
+///
+/// Only a row can be removed. A compiled provider has no row to delete, and saying
+/// so is clearer than appearing to have removed something; its key is removed with
+/// `forget_key`.
+///
+/// Refuses once the row has readings. Deleting it would orphan them, because a row
+/// added again gets a new id and cannot adopt the old history, and readings cannot
+/// be fetched again once they are gone. Switching it off keeps the history and
+/// stops the polling, which is what "I do not want this any more" usually means. A
+/// row that has never been read, which is what a mistyped one is, is removed
+/// outright.
+pub fn remove_gateway(connection: &Connection, name: &str) -> Result<()> {
+    if gateway_for(connection, name)?.is_none() {
+        return Err(anyhow!(
+            "{name} is a compiled provider, so there is no row to remove; \
+             use forget-key to remove a stored key"
+        ));
+    }
+
+    let readings: i64 = connection.query_row(
+        "SELECT count(*) FROM balance_snapshots
+         WHERE provider_id = (SELECT id FROM providers WHERE name = ?1)",
+        params![name],
+        |row| row.get(0),
+    )?;
+
+    if readings > 0 {
+        return Err(anyhow!(
+            "{name} has collected {readings} readings, and removing the row would orphan them: \
+             adding it again makes a new row that cannot adopt them. Switch it off instead, \
+             which stops the polling and keeps the history."
+        ));
+    }
+
+    connection.execute("DELETE FROM providers WHERE name = ?1", params![name])?;
+
+    Ok(())
+}
+
 /// The environment variable a provider's key can be supplied through.
 ///
 /// A compiled adapter declares its own. A provider that is a row has nothing to
@@ -2035,21 +2075,49 @@ pub fn reading_counts(connection: &Connection) -> Result<Vec<(String, i64)>> {
         .context("could not count the readings")
 }
 
-/// Whether each provider is tracked, for the screen that offers the switch.
+/// One provider row, as the screens need it.
+#[derive(Debug, Clone)]
+pub struct ProviderRow {
+    pub name: String,
+    pub enabled: bool,
+    /// What the row says to call it. `None` means fall back to the compiled name,
+    /// and then to the name itself.
+    pub display_name: Option<String>,
+}
+
+impl ProviderRow {
+    /// What to show a person. The row wins, then what the build declares, then the
+    /// name unchanged, because a provider added as a row has nothing compiled to
+    /// fall back to and its own name is better than a blank.
+    pub fn label(&self) -> String {
+        self.display_name
+            .clone()
+            .unwrap_or_else(|| display_name(&self.name).to_string())
+    }
+}
+
+/// Every provider row, tracked or not, for the screens that list them.
 ///
-/// Every row, unlike `tracked_providers`: the settings table has to be able to
-/// show a provider that is switched off, or there would be no way to switch it
-/// back on.
-pub fn provider_enabled(connection: &Connection) -> Result<Vec<(String, bool)>> {
+/// Every row, unlike `tracked_providers`: a screen has to be able to show a
+/// provider that is switched off, or there would be no way to switch it back on.
+///
+/// This is the authority on which providers exist. `PROVIDERS` says which ones the
+/// build happens to have an adapter for, which is a different list once a provider
+/// can be added as a row.
+pub fn provider_rows(connection: &Connection) -> Result<Vec<ProviderRow>> {
     let mut statement =
-        connection.prepare("SELECT name, enabled FROM providers ORDER BY id")?;
+        connection.prepare("SELECT name, enabled, display_name FROM providers ORDER BY id")?;
 
     let rows = statement.query_map([], |row| {
-        Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)? != 0))
+        Ok(ProviderRow {
+            name: row.get(0)?,
+            enabled: row.get::<_, i64>(1)? != 0,
+            display_name: row.get(2)?,
+        })
     })?;
 
     rows.collect::<rusqlite::Result<Vec<_>>>()
-        .context("could not read which providers are tracked")
+        .context("could not read the providers")
 }
 
 /// Switch a provider on or off without deleting its key or its history.
@@ -3903,6 +3971,84 @@ provider_threshold_usd,key_fingerprint"
         // Punctuation becomes underscores rather than producing an invalid name.
         assert_eq!(env_var("my-gateway.io"), Some("MY_GATEWAY_IO_KEY".to_string()));
         assert_eq!(env_var(""), None);
+    }
+
+    /// A label belongs to the row, so a provider added with one is named that way
+    /// rather than by its id. A compiled provider still falls back to what the
+    /// build declares, and a row with no label falls back to its own name.
+    #[test]
+    fn what_to_call_a_provider_comes_from_its_row_first() {
+        let connection = memory_database();
+
+        let label = |name: &str| {
+            provider_rows(&connection)
+                .expect("rows")
+                .into_iter()
+                .find(|row| row.name == name)
+                .expect("a row")
+                .label()
+        };
+
+        assert_eq!(label("openrouter"), "OpenRouter");
+
+        add_gateway(
+            &connection,
+            "orcarouter",
+            "openrouter_compatible",
+            "https://api.orcarouter.ai",
+            Some("OrcaRouter"),
+        )
+        .expect("added");
+        assert_eq!(label("orcarouter"), "OrcaRouter");
+
+        // No label given: the name itself, rather than blank.
+        add_gateway(&connection, "bare", "openrouter_compatible", "https://bare.test", None)
+            .expect("added");
+        assert_eq!(label("bare"), "bare");
+    }
+
+    /// Adding a row has to be undoable, or a typo is permanent. Readings are the
+    /// reason it can be refused, because a row added again gets a new id and could
+    /// not adopt the old history.
+    #[test]
+    fn a_gateway_can_be_removed_until_it_has_readings() {
+        let connection = memory_database();
+
+        add_gateway(
+            &connection,
+            "mistyped",
+            "openrouter_compatible",
+            "https://x.test",
+            None,
+        )
+        .expect("added");
+        assert_eq!(provider_rows(&connection).expect("rows").len(), PROVIDERS.len() + 1);
+
+        // A compiled provider has no row to delete, and saying so beats appearing
+        // to have removed something.
+        let error = remove_gateway(&connection, "openrouter")
+            .expect_err("refused")
+            .to_string();
+        assert!(error.contains("compiled provider"), "{error}");
+
+        // A row that has never been read goes outright, which is the mistyped case.
+        remove_gateway(&connection, "mistyped").expect("removed");
+        assert_eq!(provider_rows(&connection).expect("rows").len(), PROVIDERS.len());
+
+        // Once it has readings, removing it would orphan them, so it is refused
+        // and the history is still there afterwards.
+        add_gateway(&connection, "used", "openrouter_compatible", "https://x.test", None)
+            .expect("added");
+        let mut reading = balance(Basis::AccountCredits, 5.0, Some(5.0), None);
+        reading.provider = "used".to_string();
+        save_snapshot(&connection, &reading).expect("saved");
+
+        let error = remove_gateway(&connection, "used")
+            .expect_err("refused")
+            .to_string();
+        assert!(error.contains("1 readings"), "{error}");
+        assert!(error.contains("Switch it off"), "{error}");
+        assert_eq!(history(&connection, "used", 10).expect("history").len(), 1);
     }
 
     /// When a provider's history starts comes from its earliest reading, so it

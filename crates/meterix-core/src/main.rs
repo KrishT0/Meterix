@@ -12,8 +12,10 @@ use std::collections::HashMap;
 
 use meterix_core::{
     Balance, Connection, GATEWAY_SHAPES, PROVIDERS, SaveOutcome, add_gateway, adopt_legacy_database,
-    display_name, fetch_selected, first_reading_at, forget_key, gateway_for, history, history_csv, open_database,
-    provider_enabled, reading_counts, requested_providers, resolved_intervals, resolved_thresholds,
+    display_name, fetch_selected, first_reading_at, forget_key, gateway_for, history, history_csv,
+    open_database,
+    remove_gateway,
+    provider_rows, reading_counts, requested_providers, resolved_intervals, resolved_thresholds,
     save_snapshot, save_verified_key, tracked_providers,
 };
 
@@ -29,6 +31,7 @@ usage
   meterix-cli providers                 what is tracked, and what is stored
   meterix-cli add-gateway <name> --shape <shape> --base-url <url>
                                         track a provider reached through a gateway
+  meterix-cli remove-gateway <name>     remove a provider added that way
   meterix-cli set-key <provider> <key>  verify a key, then store it
   meterix-cli forget-key <provider>     remove the stored key
   meterix-cli help                      show this
@@ -178,28 +181,31 @@ fn show_providers(connection: &Connection) -> Result<()> {
         "provider", "tracked", "low at", "every", "since", "readings"
     );
 
-    for (name, enabled) in provider_enabled(connection)? {
+    for row in provider_rows(connection)? {
+        let name = &row.name;
+
         // A switched-off provider has no resolved threshold or interval, because
         // those are only worked out for what is being watched.
         let low = thresholds
-            .get(&name)
+            .get(name)
             .map_or_else(|| "-".to_string(), |value| format!("${value:.2}"));
         let every = intervals
-            .get(&name)
+            .get(name)
             .map_or_else(|| "-".to_string(), |minutes| format!("{minutes}m"));
         let since = started
-            .get(&name)
+            .get(name)
             .and_then(Option::as_deref)
             .map_or_else(|| "-".to_string(), |at| at.get(..10).unwrap_or(at).to_string());
 
         println!(
             "{:<18} {:<8} {:>8} {:>7} {:>7} {:>9}",
-            name,
-            if enabled { "yes" } else { "no" },
+            // The row's own label, so a provider added with one shows it.
+            row.label(),
+            if row.enabled { "yes" } else { "no" },
             low,
             every,
             since,
-            readings.get(&name).copied().unwrap_or(0)
+            readings.get(name).copied().unwrap_or(0)
         );
     }
 
@@ -274,6 +280,17 @@ async fn main() -> Result<()> {
                 None => println!("{name} added"),
             }
             println!("give it a key with: meterix-cli set-key {name} <key>");
+
+            Ok(())
+        }
+        "remove-gateway" => {
+            let name = args
+                .get(2)
+                .context("usage: meterix-cli remove-gateway <name>")?;
+            let connection = open_database()?;
+
+            remove_gateway(&connection, name)?;
+            println!("{name} removed");
 
             Ok(())
         }
