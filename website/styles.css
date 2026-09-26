@@ -1,0 +1,901 @@
+/* Meterix landing page.
+ *
+ * The tokens below are copied unchanged from the desktop app's own stylesheet
+ * (app/src/index.css). The page and the product are meant to be the same object
+ * seen from two distances, so none of the colours, fonts or radii are invented
+ * here. If one moves, both move.
+ *
+ * No build step and no dependencies. One stylesheet, two self-hosted variable
+ * fonts, and the app's own markup for the previews. It opens from the file
+ * system and it hosts anywhere.
+ */
+
+@font-face {
+  font-family: 'Inter Variable';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url('fonts/inter-latin-wght-normal.woff2') format('woff2-variations');
+}
+
+@font-face {
+  font-family: 'JetBrains Mono Variable';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 800;
+  src: url('fonts/jetbrains-mono-latin-wght-normal.woff2') format('woff2-variations');
+}
+
+:root {
+  /* Straight from the app. */
+  --font-sans: 'Inter Variable', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono Variable', ui-monospace, monospace;
+
+  --backdrop: #131312;
+  --surface: #1c1c1b;
+  --panel: #232322;
+  --inset: #1a1a19;
+  --line: #2e2e2c;
+  --line-strong: #3a3a37;
+  --card-raised: #1f1f1e;
+
+  --ink: #e9e7e2;
+  --ink-dim: #a8a69e;
+  /* Measured at 4.21:1 on the backdrop, which is short of AA for body text. Used
+   * here only for large or non-essential type. Body copy is --ink-dim (7.63:1). */
+  --ink-muted: #7a7871;
+
+  --amber: #e0a64b;
+  --amber-dim: #c8a24c;
+  --amber-line: #6a5220;
+
+  --teal: #4db6ac;
+  --teal-dim: #2f7d6e;
+
+  --copper: #d08a5c;
+  --copper-tint: #33241a;
+
+  /* Site only. The radius scale is the app's, named rather than scattered: a
+   * window, a card, a control, a pill. Nothing rounds by accident. */
+  --r-window: 16px;
+  --r-card: 12px;
+  --r-control: 10px;
+  --r-pill: 999px;
+
+  --page: 1120px;
+  --gutter: 24px;
+}
+
+/* ---------------------------------------------------------------- base ---- */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  /* Anchor links should not slam the heading into the very top edge. */
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  background: var(--backdrop);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 15.5px;
+  line-height: 1.7;
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* The app's rule, kept: sans for titles, monospace for everything else. */
+h1,
+h2,
+h3,
+.brand {
+  font-family: var(--font-sans);
+  letter-spacing: -0.02em;
+  margin: 0;
+}
+
+h1 {
+  font-size: clamp(2.1rem, 5.2vw, 3.4rem);
+  line-height: 1.08;
+  font-weight: 640;
+  max-width: 20ch;
+  /* Two sentences, so two lines. Left to itself the browser breaks this into a
+   * long line and a stub. */
+  text-wrap: balance;
+}
+
+h2 {
+  font-size: clamp(1.35rem, 2.6vw, 1.75rem);
+  line-height: 1.2;
+  font-weight: 600;
+  max-width: 26ch;
+}
+
+h3 {
+  font-size: 0.95rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+p {
+  margin: 0;
+}
+
+a {
+  color: var(--ink);
+  text-decoration: none;
+}
+
+a:hover {
+  color: var(--amber);
+}
+
+:focus-visible {
+  outline: 2px solid var(--amber);
+  outline-offset: 3px;
+}
+
+code {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  color: var(--ink);
+}
+
+/* Small uppercase label. The app's `label-sm`: 10 to 11px, wide tracking. Used
+ * for column headers and figures, never as decoration above a heading. */
+.label {
+  font-size: 10.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+}
+
+.dim {
+  color: var(--ink-dim);
+}
+
+/* --------------------------------------------------------------- layout ---- */
+
+.wrap {
+  max-width: var(--page);
+  margin: 0 auto;
+  padding: 0 var(--gutter);
+}
+
+.section {
+  padding: 76px 0;
+  border-top: 1px solid var(--line);
+}
+
+.section-lede {
+  color: var(--ink-dim);
+  max-width: 62ch;
+  margin-top: 14px;
+}
+
+/* -------------------------------------------------------------- nav ------- */
+
+.nav {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: color-mix(in srgb, var(--backdrop) 88%, transparent);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--line);
+}
+
+.nav-inner {
+  display: flex;
+  align-items: center;
+  gap: 28px;
+  height: 64px;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.nav-links {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  font-size: 12.5px;
+  color: var(--ink-dim);
+}
+
+.nav-links a {
+  color: var(--ink-dim);
+}
+
+.nav-links a:hover {
+  color: var(--ink);
+}
+
+/* The product's own mark: three descending bars, the same geometry the tray
+ * icon is drawn from. A single geometric mark, which is the brand's, not an
+ * icon borrowed from somewhere else. */
+.mark {
+  display: block;
+  flex: none;
+}
+
+/* -------------------------------------------------------------- hero ------ */
+
+.hero {
+  padding: 88px 0 76px;
+}
+
+/* Asymmetric split rather than a centred stack. The preview is the wide half:
+ * it is the thing that explains the product fastest. */
+.hero-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+  gap: 56px;
+  align-items: start;
+}
+
+.hero-sub {
+  color: var(--ink-dim);
+  margin-top: 20px;
+  max-width: 34ch;
+}
+
+.hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 30px;
+}
+
+/* ------------------------------------------------------------ buttons ----- */
+
+.btn {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 500;
+  padding: 11px 18px;
+  border-radius: var(--r-control);
+  border: 1px solid transparent;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+  transition:
+    transform 0.18s cubic-bezier(0.16, 1, 0.3, 1),
+    background-color 0.18s ease,
+    border-color 0.18s ease,
+    color 0.18s ease;
+}
+
+/* 8.61:1, measured. Near-black on amber, the app's primary action colour. */
+.btn-primary {
+  background: var(--amber);
+  color: #1a1408;
+  font-weight: 600;
+}
+
+.btn-primary:hover {
+  color: #1a1408;
+  background: #eab35e;
+}
+
+.btn-secondary {
+  background: var(--panel);
+  border-color: var(--line-strong);
+  color: var(--ink);
+}
+
+.btn-secondary:hover {
+  color: var(--ink);
+  border-color: var(--ink-muted);
+}
+
+.btn:active {
+  transform: translateY(1px);
+}
+
+/* -------------------------------------------------------- app preview ----- */
+
+/* The previews are the product's real interface, rebuilt with the app's own
+ * markup and tokens at the app's own dimensions. They are not invented panels
+ * standing in for a screenshot: what they show is what the app draws, so they
+ * cannot drift from it the way a stale screenshot would. */
+
+.ui {
+  background: var(--backdrop);
+  border: 1px solid var(--line);
+  border-radius: var(--r-window);
+  overflow: hidden;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.ui-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 14px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+}
+
+.ui-title {
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.ui-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 9.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  border-radius: var(--r-pill);
+  padding: 3px 9px;
+  border: 1px solid var(--amber-line);
+  color: var(--amber-dim);
+}
+
+.ui-body {
+  padding: 16px;
+}
+
+.ui-figures {
+  display: flex;
+  gap: 34px;
+  align-items: flex-start;
+}
+
+.ui-figure {
+  font-size: 30px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1;
+  margin-top: 7px;
+}
+
+.ui-cards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+/* Cards exist here because the app's cards carry real state: the tint is the
+ * health of that provider. Elevation is doing work, not decorating. */
+.ui-card {
+  background: var(--card-raised);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  padding: 12px 13px;
+}
+
+.ui-card.ok {
+  background: color-mix(in srgb, var(--teal) 7%, var(--card-raised));
+  border-color: color-mix(in srgb, var(--teal) 22%, var(--line));
+}
+
+.ui-card.low {
+  background: color-mix(in srgb, var(--amber) 7%, var(--card-raised));
+  border-color: color-mix(in srgb, var(--amber) 24%, var(--line));
+}
+
+.ui-card-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11.5px;
+}
+
+.ui-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: var(--r-pill);
+  flex: none;
+}
+
+.ui-card-figure {
+  font-size: 19px;
+  font-weight: 600;
+  line-height: 1;
+  margin-top: 9px;
+}
+
+.ui-card-meta {
+  font-size: 10.5px;
+  color: var(--ink-dim);
+  margin-top: 6px;
+}
+
+.ui-chip {
+  display: inline-block;
+  margin-top: 9px;
+  font-size: 9.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  border-radius: var(--r-pill);
+  padding: 3px 8px;
+  border: 1px solid;
+}
+
+.ui-chip.low {
+  color: var(--amber-dim);
+  border-color: var(--amber-line);
+}
+
+.ui-chip.ok {
+  color: var(--teal);
+  border-color: var(--teal-dim);
+}
+
+.ui-table {
+  margin-top: 18px;
+  border-top: 1px solid var(--line);
+}
+
+.ui-row {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr 0.9fr 0.8fr;
+  gap: 10px;
+  padding: 9px 0;
+  font-size: 11.5px;
+  align-items: center;
+  border-bottom: 1px solid var(--line);
+}
+
+.ui-row:last-child {
+  border-bottom: 0;
+}
+
+.ui-row.head {
+  padding: 9px 0 7px;
+}
+
+.ui-num {
+  text-align: right;
+}
+
+/* Rows that are not the standard four column history line. */
+.ui-row.pair {
+  grid-template-columns: 1.6fr 1fr;
+}
+
+.ui-row.rules {
+  grid-template-columns: 1.3fr 0.9fr 0.8fr 0.6fr;
+}
+
+/* The tray popover, at its real width. */
+.ui-popover {
+  width: 340px;
+  max-width: 100%;
+}
+
+/* --------------------------------------------------------------- flow ----- */
+
+/* A sequence, so the columns are deliberately unequal: the first step carries
+ * the point, the other two support it. Not three identical feature cards. */
+.flow {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr) minmax(0, 1fr);
+  gap: 0;
+  margin-top: 34px;
+  border-top: 1px solid var(--line);
+}
+
+.stage {
+  padding: 22px 24px 24px 0;
+  border-right: 1px solid var(--line);
+}
+
+.stage:last-child {
+  border-right: 0;
+  padding-right: 0;
+}
+
+.stage:not(:first-child) {
+  padding-left: 24px;
+}
+
+.stage p {
+  color: var(--ink-dim);
+  font-size: 13.5px;
+  margin-top: 9px;
+  max-width: 40ch;
+}
+
+/* ---------------------------------------------------------- providers ----- */
+
+.providers {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1px;
+  background: var(--line);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  overflow: hidden;
+  margin-top: 30px;
+}
+
+.provider {
+  background: var(--surface);
+  padding: 18px 18px 20px;
+}
+
+.provider-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.provider p {
+  color: var(--ink-dim);
+  font-size: 12.5px;
+  margin-top: 9px;
+  line-height: 1.6;
+}
+
+.provider .basis {
+  display: block;
+  font-size: 10.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  margin-top: 12px;
+}
+
+.basis.money {
+  color: var(--teal);
+}
+
+.basis.quota {
+  color: var(--amber-dim);
+}
+
+.audited-out {
+  color: var(--ink-dim);
+  font-size: 13.5px;
+  margin-top: 20px;
+  max-width: 74ch;
+}
+
+/* ----------------------------------------------------------- surfaces ----- */
+
+/* Three surfaces, three different sizes. A trio of equal framed boxes would be
+ * the templated version of this section. */
+.surfaces {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 0.95fr);
+  grid-template-rows: auto auto;
+  gap: 22px;
+  margin-top: 32px;
+}
+
+.surface {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.surface-wide {
+  grid-row: span 2;
+}
+
+.surface h3 {
+  color: var(--ink);
+}
+
+.surface p {
+  color: var(--ink-dim);
+  font-size: 13.5px;
+  max-width: 44ch;
+}
+
+.surface .ui {
+  margin-top: auto;
+}
+
+/* ------------------------------------------------------------ metrics ----- */
+
+/* Real measurements, taken from the project's own records on one machine, and
+ * labelled as such rather than presented as a specification. */
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 26px 40px;
+  margin-top: 30px;
+}
+
+.metric-value {
+  font-size: 24px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  margin-top: 8px;
+}
+
+.metric-note {
+  color: var(--ink-dim);
+  font-size: 12.5px;
+  margin-top: 6px;
+}
+
+/* ------------------------------------------------------------- limits ----- */
+
+/* Grouped rather than one row per line with a rule under it. */
+.limits {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 34px 46px;
+  margin-top: 30px;
+}
+
+.limit-group h3 {
+  color: var(--ink);
+}
+
+.limit-group ul {
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 11px;
+}
+
+.limit-group li {
+  color: var(--ink-dim);
+  font-size: 13.5px;
+  padding-left: 16px;
+  position: relative;
+}
+
+.limit-group li::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0.68em;
+  width: 6px;
+  height: 1px;
+  background: var(--line-strong);
+}
+
+/* ------------------------------------------------------------ get-it ------ */
+
+.get-it {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 46px;
+  align-items: start;
+}
+
+.code {
+  background: var(--inset);
+  border: 1px solid var(--line);
+  border-radius: var(--r-control);
+  padding: 16px 18px;
+  margin-top: 20px;
+  overflow-x: auto;
+}
+
+.code pre {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.9;
+  color: var(--ink-dim);
+}
+
+.code .c {
+  color: var(--ink-muted);
+}
+
+.code .k {
+  color: var(--amber);
+}
+
+.not-built {
+  border: 1px solid var(--amber-line);
+  background: color-mix(in srgb, var(--amber) 6%, var(--backdrop));
+  border-radius: var(--r-control);
+  padding: 15px 17px;
+  margin-top: 20px;
+}
+
+.not-built .label {
+  color: var(--amber-dim);
+}
+
+.not-built p {
+  color: var(--ink-dim);
+  font-size: 13px;
+  margin-top: 7px;
+}
+
+/* Unused until the repository is published, and deliberately kept: it is the
+ * style for the one link that is coming. */
+.repo-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13.5px;
+  color: var(--amber);
+  border-bottom: 1px solid var(--amber-line);
+  padding-bottom: 2px;
+}
+
+.repo-link:hover {
+  color: var(--amber);
+  border-bottom-color: var(--amber);
+}
+
+/* ------------------------------------------------------------- footer ----- */
+
+.site-footer {
+  border-top: 1px solid var(--line);
+  padding: 30px 0 54px;
+}
+
+.footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px 26px;
+  align-items: center;
+  font-size: 12.5px;
+  color: var(--ink-dim);
+}
+
+.footer-links {
+  margin-left: auto;
+  display: flex;
+  gap: 20px;
+}
+
+.footer a {
+  color: var(--ink-dim);
+}
+
+.footer a:hover {
+  color: var(--ink);
+}
+
+/* ------------------------------------------------------------ motion ----- */
+
+/* Fluid CSS only, and only where it carries meaning: entrances on load, and
+ * state on the things you can press. Nothing loops, nothing tracks the
+ * scrollbar. All of it collapses under a reduced-motion preference. */
+@media (prefers-reduced-motion: no-preference) {
+  .rise {
+    animation: rise 0.62s cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+
+  .rise-2 {
+    animation-delay: 0.07s;
+  }
+
+  .rise-3 {
+    animation-delay: 0.14s;
+  }
+
+  @keyframes rise {
+    from {
+      opacity: 0;
+      transform: translateY(14px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  * {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+/* ---------------------------------------------------------- narrow -------- */
+
+/* Every multi-column layout above has an explicit single-column fallback here.
+ * Nothing leans on the browser to work it out. */
+@media (max-width: 940px) {
+  .hero-grid,
+  .get-it,
+  .surfaces,
+  .flow {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .flow {
+    border-top: 0;
+  }
+
+  .stage,
+  .stage:not(:first-child) {
+    padding: 24px 0;
+    border-right: 0;
+    border-top: 1px solid var(--line);
+  }
+
+  .stage:first-child {
+    border-top: 1px solid var(--line);
+  }
+
+  .surface-wide {
+    grid-row: auto;
+  }
+
+  .providers {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .metrics,
+  .limits {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 620px) {
+  .wrap {
+    padding: 0 18px;
+  }
+
+  .hero {
+    padding: 56px 0 52px;
+  }
+
+  .section {
+    padding: 54px 0;
+  }
+
+  h1 {
+    max-width: none;
+  }
+
+  .providers,
+  .ui-cards {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ui-row {
+    grid-template-columns: 1.4fr 1fr;
+  }
+
+  /* Columns that only carry secondary detail fall away rather than wrapping
+   * into an unreadable stack. */
+  .ui-row .optional {
+    display: none;
+  }
+
+  .nav-links {
+    gap: 16px;
+    font-size: 12px;
+  }
+
+  .nav-links .later {
+    display: none;
+  }
+}
+
+@media (max-width: 420px) {
+  .nav-links .also-later {
+    display: none;
+  }
+}

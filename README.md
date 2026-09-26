@@ -202,7 +202,7 @@ crates/meterix-core/  the core: a library, plus a thin CLI called meterix-cli
 app/                  the desktop app
   src/                React dashboard, popover and settings
   src-tauri/          Tauri shell: windows, tray, notifications, poller
-website/              the single-page site, not built yet
+website/              the landing page: one page, no build step, no dependencies
 mockup/index.html     the whole app on one page, as a design reference
 docs/PROJECT.md       design decisions, data model, known gaps
 Cargo.toml            one workspace: shared versions, one lockfile, one target/

@@ -1,0 +1,511 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Meterix - LLM API credit tracker for your system tray</title>
+    <meta
+      name="description"
+      content="Track remaining LLM API credits in your system tray. Polls OpenRouter, CheaperInference, DeepSeek and ElevenLabs. Free and local, keys stay in your OS keychain."
+    />
+
+    <!-- The reserved example.com host below stands in for the real origin. It is
+         the one hostname that exists only for documentation, so a forgotten one
+         cannot point at somebody else's site.
+
+         It appears five times on this page: the canonical link, og:url,
+         og:image, twitter:image and the JSON-LD url. It also appears in
+         robots.txt and sitemap.xml. -->
+    <link rel="canonical" href="https://example.com/" />
+    <meta name="robots" content="index, follow" />
+    <meta name="author" content="Meterix" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Meterix" />
+    <meta property="og:title" content="Meterix - LLM API credit tracker for your system tray" />
+    <meta
+      property="og:description"
+      content="Polls OpenRouter, CheaperInference, DeepSeek and ElevenLabs on a timer and shows the lowest balance in your tray. Free and local."
+    />
+    <meta property="og:url" content="https://example.com/" />
+    <!-- TODO: a 1200x630 PNG at this path. Social cards show text only until
+         that file exists, which is the one asset this page still needs. -->
+    <meta property="og:image" content="https://example.com/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Meterix, showing the balance left with four LLM providers in a system tray." />
+
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Meterix - LLM API credit tracker for your system tray" />
+    <meta
+      name="twitter:description"
+      content="Polls OpenRouter, CheaperInference, DeepSeek and ElevenLabs on a timer and shows the lowest balance in your tray."
+    />
+    <meta name="twitter:image" content="https://example.com/og.png" />
+
+    <meta name="theme-color" content="#131312" />
+    <meta name="color-scheme" content="dark" />
+
+    <!-- Both fonts are used above the fold, so both are fetched early rather
+         than discovered late in the stylesheet. -->
+    <link
+      rel="preload"
+      href="fonts/inter-latin-wght-normal.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
+    <link
+      rel="preload"
+      href="fonts/jetbrains-mono-latin-wght-normal.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
+
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "SoftwareApplication",
+        "name": "Meterix",
+        "applicationCategory": "DeveloperApplication",
+        "applicationSubCategory": "API credit balance tracker",
+        "operatingSystem": "Windows",
+        "description": "A system tray app that polls LLM API providers on a timer and shows the lowest remaining balance.",
+        "url": "https://example.com/",
+        "isAccessibleForFree": true,
+        "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+        "featureList": [
+          "Remaining balance for OpenRouter, CheaperInference, DeepSeek and ElevenLabs",
+          "API keys stored in the operating system keychain",
+          "A low balance threshold per provider",
+          "Tray icon coloured by the worst state across providers",
+          "History of every reading, charted over time"
+        ]
+      }
+    </script>
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Crect width='20' height='20' fill='%23131312'/%3E%3Crect x='3' y='4' width='14' height='2.8' rx='1' fill='%234DB6AC'/%3E%3Crect x='5.2' y='8.6' width='9.6' height='2.8' rx='1' fill='%234DB6AC'/%3E%3Crect x='7.4' y='13.2' width='5.2' height='2.8' rx='1' fill='%234DB6AC'/%3E%3C/svg%3E"
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <!-- Design read: developer-tool landing page for people who already pay
+         several LLM providers, in a dark, terminal-adjacent language taken from
+         the product's own interface rather than invented for the page.
+         Dials: VARIANCE 6 / MOTION 4 / DENSITY 4.
+
+         Two things are deliberate here and worth not "fixing" later:
+         1. There are no photographs. A tray utility's subject is its interface,
+            so the previews below are the app's real markup at the app's real
+            dimensions, which cannot drift from the product the way a screenshot
+            would.
+         2. The page is dark only, because the app is. A light landing page
+            wrapped around a dark product would be a different brand. -->
+
+    <nav class="nav">
+      <div class="wrap nav-inner">
+        <span class="brand">
+          <svg class="mark" width="17" height="17" viewBox="0 0 20 20" aria-hidden="true">
+            <rect x="1" y="3" width="18" height="3.4" rx="1" fill="#4DB6AC" />
+            <rect x="3.8" y="8.3" width="12.4" height="3.4" rx="1" fill="#4DB6AC" />
+            <rect x="6.8" y="13.6" width="6.4" height="3.4" rx="1" fill="#4DB6AC" />
+          </svg>
+          Meterix
+        </span>
+        <div class="nav-links">
+          <a href="#providers">Providers</a>
+          <a href="#surfaces" class="later">Surfaces</a>
+          <a href="#cost" class="later">Cost</a>
+          <a href="#limits" class="also-later">Limits</a>
+          <a href="#get-it">Get it</a>
+        </div>
+      </div>
+    </nav>
+
+    <!-- Hero. One headline, one sentence, two actions, and the product itself.
+         No eyebrow, no tagline under the buttons, no trust strip. -->
+    <header class="hero">
+      <div class="wrap hero-grid">
+        <div>
+          <h1 class="rise">All your LLM API credits. One tray icon.</h1>
+          <p class="hero-sub rise rise-2">
+            Meterix polls your LLM providers on a timer and puts the worst balance
+            in your system tray.
+          </p>
+          <div class="hero-actions rise rise-3">
+            <a class="btn btn-primary" href="#get-it">Get it</a>
+            <a class="btn btn-secondary" href="#providers">How it works</a>
+          </div>
+        </div>
+
+        <!-- The dashboard, drawn with the app's own tokens and geometry. -->
+        <div class="ui rise rise-2" role="img" aria-label="The Meterix dashboard: a total balance, two provider cards and a history table.">
+          <div class="ui-bar">
+            <svg class="mark" width="14" height="14" viewBox="0 0 20 20" aria-hidden="true">
+              <rect x="1" y="3" width="18" height="3.4" rx="1" fill="#E0A64B" />
+              <rect x="3.8" y="8.3" width="12.4" height="3.4" rx="1" fill="#E0A64B" />
+              <rect x="6.8" y="13.6" width="6.4" height="3.4" rx="1" fill="#E0A64B" />
+            </svg>
+            <span class="ui-title">Meterix</span>
+            <span class="ui-pill">1 running low</span>
+          </div>
+
+          <div class="ui-body">
+            <div class="ui-figures">
+              <div>
+                <span class="label">Total balance</span>
+                <div class="ui-figure">$25.51</div>
+              </div>
+              <div>
+                <span class="label">Spent</span>
+                <div class="ui-figure dim">$31.44</div>
+              </div>
+              <div>
+                <span class="label">Low below</span>
+                <div class="ui-figure dim" style="font-size: 19px">$10.00</div>
+              </div>
+            </div>
+
+            <div class="ui-cards">
+              <div class="ui-card ok">
+                <div class="ui-card-head">
+                  <span class="ui-dot" style="background: #4db6ac"></span>
+                  OpenRouter
+                </div>
+                <div class="ui-card-figure">$18.42</div>
+                <div class="ui-card-meta">account balance · checked 4m ago</div>
+                <span class="ui-chip ok">healthy</span>
+              </div>
+              <div class="ui-card low">
+                <div class="ui-card-head">
+                  <span class="ui-dot" style="background: #e0a64b"></span>
+                  CheaperInference
+                </div>
+                <div class="ui-card-figure">$7.09</div>
+                <div class="ui-card-meta">account balance · checked 4m ago</div>
+                <span class="ui-chip low">under $10.00</span>
+              </div>
+            </div>
+
+            <div class="ui-table">
+              <div class="ui-row head">
+                <span class="label">Provider</span>
+                <span class="label">Basis</span>
+                <span class="label ui-num">Balance</span>
+                <span class="label ui-num optional">Checked</span>
+              </div>
+              <div class="ui-row">
+                <span>OpenRouter</span>
+                <span class="dim">account credits</span>
+                <span class="ui-num">18.42</span>
+                <span class="ui-num dim optional">4m</span>
+              </div>
+              <div class="ui-row">
+                <span>CheaperInference</span>
+                <span class="dim">account credits</span>
+                <span class="ui-num">7.09</span>
+                <span class="ui-num dim optional">4m</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <main>
+      <!-- How it works. Unequal columns on purpose: this is a sequence, not
+           three identical features. -->
+      <section class="section" id="how">
+        <div class="wrap">
+          <h2>It watches, so you do not have to</h2>
+          <div class="flow">
+            <div class="stage">
+              <h3>A key goes into your keychain</h3>
+              <p>
+                Paste a key once. Meterix checks it against the provider before
+                replacing anything, then hands it to the operating system's
+                keychain. It never reaches the database.
+              </p>
+            </div>
+            <div class="stage">
+              <h3>Each provider is read on a timer</h3>
+              <p>
+                Thirty minutes by default, or an interval you set for one provider
+                alone. A provider that rate-limits can be given hours without the
+                others waiting behind it.
+              </p>
+            </div>
+            <div class="stage">
+              <h3>The tray shows the worst state</h3>
+              <p>
+                Teal when everything is fine, amber when a balance is under your
+                threshold, copper when a key has stopped working.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Providers. The audit is real: some APIs publish a balance and some do
+           not, which is the whole reason the list is this short. -->
+      <section class="section" id="providers">
+        <div class="wrap">
+          <h2>Four providers, chosen because they answer</h2>
+          <p class="section-lede">
+            Meterix can only show what a provider is willing to report. These four
+            say how much is left.
+          </p>
+
+          <div class="providers">
+            <div class="provider">
+              <h3 class="provider-name">
+                <span class="ui-dot" style="background: #4db6ac"></span>OpenRouter
+              </h3>
+              <p>Account balance, plus spend over the last 90 days.</p>
+              <span class="basis money">In dollars</span>
+            </div>
+            <div class="provider">
+              <h3 class="provider-name">
+                <span class="ui-dot" style="background: #7bc6d9"></span>CheaperInference
+              </h3>
+              <p>Account balance, and the balance it auto-recharges at.</p>
+              <span class="basis money">In dollars</span>
+            </div>
+            <div class="provider">
+              <h3 class="provider-name">
+                <span class="ui-dot" style="background: #a9d05c"></span>DeepSeek
+              </h3>
+              <p>Prepaid balance, including any credit that was granted rather than bought.</p>
+              <span class="basis money">In dollars</span>
+            </div>
+            <div class="provider">
+              <h3 class="provider-name">
+                <span class="ui-dot" style="background: #c79be0"></span>ElevenLabs
+              </h3>
+              <p>A monthly character allowance, so it is counted in characters and kept out of the money total.</p>
+              <span class="basis quota">Not money</span>
+            </div>
+          </div>
+
+          <p class="audited-out">
+            <strong>Audited and left out.</strong> OpenAI and Anthropic report
+            spending rather than a balance, and only through an admin key that an
+            individual account cannot always have. Groq reports neither. AWS
+            Bedrock has no balance endpoint at all, and signs requests instead of
+            accepting a key.
+          </p>
+        </div>
+      </section>
+
+      <!-- The three surfaces, at three different sizes. -->
+      <section class="section" id="surfaces">
+        <div class="wrap">
+          <h2>Three surfaces, one set of numbers</h2>
+
+          <div class="surfaces">
+            <div class="surface surface-wide">
+              <h3>The tray icon, for a glance</h3>
+              <p>
+                Left click opens a popover with every provider and its latest
+                reading. It disappears the moment it loses focus, the way a tray
+                popover should.
+              </p>
+              <div class="ui ui-popover" role="img" aria-label="The tray popover: two providers with their balances and a footer with the last check time.">
+                <div class="ui-body">
+                  <div class="ui-row pair">
+                    <span style="display: flex; align-items: center; gap: 7px">
+                      <span class="ui-dot" style="background: #4db6ac"></span>OpenRouter
+                    </span>
+                    <span class="ui-num">$18.42</span>
+                  </div>
+                  <div class="ui-row pair">
+                    <span style="display: flex; align-items: center; gap: 7px">
+                      <span class="ui-dot" style="background: #e0a64b"></span>CheaperInference
+                    </span>
+                    <span class="ui-num">$7.09</span>
+                  </div>
+                </div>
+                <div class="ui-bar" style="border-bottom: 0; border-top: 1px solid var(--line)">
+                  <span class="label">checked 4m ago</span>
+                  <span class="label" style="margin-left: auto; color: var(--amber-dim)">refresh now</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="surface">
+              <h3>The dashboard, for the detail</h3>
+              <p>
+                Every reading is stored, so the chart draws your balance over time
+                rather than a single number.
+              </p>
+            </div>
+
+            <div class="surface">
+              <h3>Settings, for the rules</h3>
+              <p>
+                A low threshold per provider, its own interval, and a switch to
+                stop watching one without deleting its key or its history.
+              </p>
+              <div class="ui" role="img" aria-label="The settings provider table: each provider with its interval, threshold and a tracked switch.">
+                <div class="ui-body">
+                  <div class="ui-row rules head">
+                    <span class="label">Provider</span>
+                    <span class="label ui-num">Every</span>
+                    <span class="label ui-num">Low at</span>
+                    <span class="label ui-num">Tracked</span>
+                  </div>
+                  <div class="ui-row rules">
+                    <span>OpenRouter</span>
+                    <span class="ui-num dim">30m</span>
+                    <span class="ui-num">$10.00</span>
+                    <span class="ui-num" style="color: var(--amber)">on</span>
+                  </div>
+                  <div class="ui-row rules">
+                    <span>ElevenLabs</span>
+                    <span class="ui-num dim">30m</span>
+                    <span class="ui-num dim">-</span>
+                    <span class="ui-num" style="color: var(--amber)">on</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Real measurements from the project's own records, labelled as coming
+           from one machine rather than presented as a specification. -->
+      <section class="section" id="cost">
+        <div class="wrap">
+          <h2>What it costs to leave running</h2>
+          <p class="section-lede">
+            Measured on a release build with two providers connected, ninety seconds
+            after launch. It is a tray app, so these are the numbers that matter.
+          </p>
+
+          <div class="metrics">
+            <div>
+              <span class="label">Its own process</span>
+              <div class="metric-value">29 MB</div>
+              <p class="metric-note">The rest of the memory is the Edge runtime the window is drawn in.</p>
+            </div>
+            <div>
+              <span class="label">CPU while idle</span>
+              <div class="metric-value">0.4%</div>
+              <p class="metric-note">Of one core. At a 30 minute poll that is about 7 CPU-seconds a day.</p>
+            </div>
+            <div>
+              <span class="label">Database</span>
+              <div class="metric-value">~100 B</div>
+              <p class="metric-note">Per reading, so a few megabytes a year at the default rate.</p>
+            </div>
+            <div>
+              <span class="label">Release binary</span>
+              <div class="metric-value">15.8 MB</div>
+              <p class="metric-note">Nothing needs OpenSSL or a system crypto library.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Grouped, not one bordered row per line. -->
+      <section class="section" id="limits">
+        <div class="wrap">
+          <h2>What it does not do</h2>
+          <p class="section-lede">
+            Worth reading before you rely on it. A balance watcher that overstates
+            itself is worse than none.
+          </p>
+
+          <div class="limits">
+            <div class="limit-group">
+              <h3>By design</h3>
+              <ul>
+                <li>It reads balances. It is not a cost calculator and not a proxy, so nothing you send to a provider goes through it.</li>
+                <li>There is no account, no cloud and no sync. The database is one file on your machine.</li>
+                <li>Four providers, and adding a kind of provider is a code change rather than configuration.</li>
+                <li>Desktop only. There is no mobile app and no web version.</li>
+              </ul>
+            </div>
+            <div class="limit-group">
+              <h3>Not finished yet</h3>
+              <ul>
+                <li>There is no installer. You build it from source, which the section below walks through.</li>
+                <li>Dark only. There is no light theme.</li>
+                <li>Windows is the only platform this has been run on. macOS and Linux are in the code and untested.</li>
+                <li>A DeepSeek account funded in yuan is refused rather than shown, because everything else here is compared against a dollar threshold.</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="get-it">
+        <div class="wrap">
+          <h2>Get it</h2>
+          <div class="get-it" style="margin-top: 28px">
+            <div>
+              <p class="section-lede" style="margin-top: 0">
+                Clone the repository and build it. Rust 1.85 or newer, Node 22 or
+                newer, and WebView2, which Windows 11 already has. Nothing needs
+                OpenSSL.
+              </p>
+              <div class="code">
+                <pre><span class="c"># build and run</span>
+git clone <span class="k">&lt;repository&gt;</span> meterix
+cd meterix/app
+npm install
+npm run tauri dev
+
+<span class="c"># release build</span>
+npm run tauri build</pre>
+              </div>
+              <!-- The repository is not published yet. When it is, replace the
+                   sentence below with:
+                     <a class="repo-link" href="THE URL">Source on GitHub</a>
+                   That style is already in the stylesheet. This used to be an
+                   anchor pointing at its own section, which read as a broken
+                   link. -->
+              <p style="margin-top: 20px" class="dim">
+                The repository link will go here once it is published.
+              </p>
+            </div>
+
+            <div>
+              <div class="not-built">
+                <span class="label">No installer yet</span>
+                <p>
+                  There is no download, and this page will not pretend otherwise.
+                  The bundler needs to fetch NSIS on first use and that download
+                  has not completed in the environment this was built in, so no
+                  installer has ever been produced. When there is one, it will
+                  appear here.
+                </p>
+              </div>
+
+              <p class="section-lede">
+                Use <code>npm run tauri build</code> rather than a plain cargo
+                build. A bare release build produces a binary that loads the
+                development server, so it opens an error page with no JavaScript
+                running at all. It looks like it worked.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="wrap footer">
+        <span>Meterix. Local first, and your keys stay in your operating system's keychain.</span>
+        <div class="footer-links">
+          <a href="#providers">Providers</a>
+          <a href="#limits">Limits</a>
+          <a href="#get-it">Get it</a>
+        </div>
+      </div>
+    </footer>
+  </body>
+</html>

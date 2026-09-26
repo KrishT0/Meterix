@@ -1,0 +1,5 @@
+# Replace https://example.com with the real origin once this is hosted.
+User-agent: *
+Allow: /
+
+Sitemap: https://example.com/sitemap.xml

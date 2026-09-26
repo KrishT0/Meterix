@@ -61,7 +61,7 @@ crates/meterix-core/  the core: a library plus a CLI front end, `meterix-cli`
 app/                  the desktop app
   src/                React dashboard
   src-tauri/          Tauri shell, the only place that knows about both sides
-website/              the single-page site, not built yet
+website/              the landing page: one page, no build step, no dependencies
 mockup/index.html     the whole app on one page, and the proposed colour revamp:
                       ten identity shades, cards tinted by provider, status by chip
 docs/PROJECT.md       this document
@@ -81,6 +81,15 @@ through `[workspace.package]` and the versions that more than one member needs
 through `[workspace.dependencies]`. Cargo still allows a member to ask for
 features of its own on top of a workspace version, which is how `meterix-core`
 gets `tokio`'s full feature set while the app takes only what its poller needs.
+
+**The landing page shares the app's tokens rather than copying its look.** The
+`website/` directory holds one HTML page, one stylesheet and two self-hosted
+fonts, with no build step and no third-party request. Its colour tokens, radius
+scale and fonts are copied from the app's own stylesheet, and its figures come
+from the footprint records below, so the page cannot claim a number the project
+has not measured. Its previews are the app's real markup at the app's real
+dimensions rather than screenshots, which is the difference between a preview
+that ages and one that cannot drift.
 
 ## Running it
 
