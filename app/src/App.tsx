@@ -12,7 +12,9 @@ import {
   Label,
   Pill,
   RefreshIcon,
+  ResizeEdges,
   StatusDot,
+  WindowControls,
   healthOf,
   tones,
 } from './components/ui'
@@ -306,7 +308,13 @@ export default function App() {
         </>
       ) : (
         <>
-      <header className="flex items-center gap-2.5 border-b border-line px-5 py-3">
+      {/* The window's title bar: the app's header and the window controls on one
+          strip, because the native frame is gone. `deep` makes the whole subtree
+          draggable while the buttons, which are clickable, block it by default. */}
+      <header
+        data-tauri-drag-region="deep"
+        className="relative z-10 flex items-center gap-2.5 border-b border-line px-5 py-2 pl-4"
+      >
         <span className="text-[13px] font-semibold tracking-[-0.01em]">Meterix</span>
 
         <Pill className={`flex items-center gap-1.5 ${tones[overallTone].pill}`}>
@@ -349,8 +357,12 @@ export default function App() {
               Settings
             </span>
           </Button>
+          <WindowControls window="dashboard" />
         </div>
       </header>
+
+      {/* Puts the resize edges back on a window that has no native frame. */}
+      <ResizeEdges />
 
       <div className="flex-1 p-4">
         {fatal || failed.length > 0 || removalNote ? (

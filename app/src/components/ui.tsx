@@ -1,5 +1,7 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import type { ButtonHTMLAttributes, ReactNode } from 'react'
+import { invoke } from '@tauri-apps/api/core'
+import { getCurrentWindow } from '@tauri-apps/api/window'
 
 import type { ProviderOverview, RefreshOutcome } from '../lib/api'
 
@@ -95,6 +97,196 @@ export function Button({ variant = 'secondary', className = '', ...rest }: Butto
       className={`rounded-lg px-3 py-1.5 text-[12px] transition disabled:cursor-not-allowed disabled:opacity-40 ${buttonVariants[variant]} ${className}`}
       {...rest}
     />
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Window controls
+// ---------------------------------------------------------------------------
+
+/* The window has no native title bar, so these are its controls. Three rules
+ * shape them, and each is load bearing:
+ *
+ * - They sit outside the drag region. A clickable element already blocks dragging,
+ *   and these carry `data-tauri-drag-region="false"` so the intent is written down
+ *   rather than inherited from an implementation detail.
+ * - There is no double-click handler. Tauri's own drag-region script already
+ *   toggles maximise on a double click, so adding one here would toggle twice and
+ *   cancel itself out.
+ * - Only the close control is coloured, and only on hover. Three coloured glyphs in
+ *   a row would each be competing to be the primary action. */
+
+type WindowControl = 'minimise' | 'maximise' | 'close'
+
+const controlPaths: Record<WindowControl, ReactNode> = {
+  minimise: <path d="M3 6h10" />,
+  maximise: <rect x="3.5" y="3.5" width="9" height="9" rx="1.5" />,
+  close: <path d="M4 4l8 8M12 4l-8 8" />,
+}
+
+/** What quitting means: ask first. A watcher that stops watching on a stray click
+ *  says nothing about it, and this is the only way out that is not the tray menu. */
+function askToQuit() {
+  if (window.confirm('Quit Meterix? Balances will stop being checked.')) {
+    void invoke('quit_app')
+  }
+}
+
+/** The controls a window needs, and nothing else. */
+export function WindowControls({ window: which }: { window: 'dashboard' | 'popover' }) {
+  const [maximised, setMaximised] = useState(false)
+
+  useEffect(() => {
+    if (which !== 'dashboard') return
+
+    const current = getCurrentWindow()
+    let stop: (() => void) | undefined
+
+    void current.isMaximized().then(setMaximised)
+    // Kept in step with the window rather than with the click: it can also be
+    // maximised by double-clicking the drag region, or by the window manager.
+    void current
+      .onResized(() => void current.isMaximized().then(setMaximised))
+      .then((unlisten) => {
+        stop = unlisten
+      })
+
+    return () => stop?.()
+  }, [which])
+
+  const controls: WindowControl[] =
+    which === 'dashboard' ? ['minimise', 'maximise', 'close'] : ['close']
+
+  return (
+    <div className="ml-1 flex items-center gap-0.5 border-l border-line pl-2.5">
+      {controls.map((control) => (
+        <button
+          key={control}
+          type="button"
+          data-tauri-drag-region="false"
+          onClick={() => {
+            const current = getCurrentWindow()
+
+            if (control === 'minimise') {
+              // A popover with no taskbar entry has nothing to minimise to.
+              void (which === 'popover' ? current.hide() : current.minimize())
+            } else if (control === 'maximise') {
+              void current.toggleMaximize()
+            } else {
+              askToQuit()
+            }
+          }}
+          aria-label={control === 'maximise' && maximised ? 'Restore' : control}
+          title={control === 'maximise' && maximised ? 'Restore' : control}
+          className={`flex h-7 w-8 items-center justify-center rounded-[7px] text-ink-dim transition hover:bg-panel hover:text-ink ${
+            control === 'close' ? 'hover:bg-copper-tint hover:text-copper' : ''
+          }`}
+        >
+          <svg
+            width="12"
+            height="12"
+            viewBox="0 0 16 16"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.4"
+            strokeLinecap="round"
+          >
+            {controlPaths[control]}
+          </svg>
+        </button>
+      ))}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Resize edges
+// ---------------------------------------------------------------------------
+
+/* An undecorated window can lose the draggable border a native frame gives you,
+ * and losing it would be a worse trade than a bar that does not match the design.
+ * This puts the edges back.
+ *
+ * It starts 4px outside the viewport because the outermost pixels of a window can
+ * belong to the resize border rather than the page, so a strip drawn inside would
+ * be a target that sometimes is not hit.
+ *
+ * ponytail: mounted only when the window has actually lost its frame, so it costs
+ * nothing while the native bar is still there. Deleting this component and its one
+ * render is the whole revert. */
+
+type Edge = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw'
+
+/** Mirrors the package's own union, which it declares but does not export.
+ *  Identical members, so it satisfies the method's parameter structurally. */
+type ResizeDirection =
+  | 'East'
+  | 'North'
+  | 'NorthEast'
+  | 'NorthWest'
+  | 'South'
+  | 'SouthEast'
+  | 'SouthWest'
+  | 'West'
+
+const edgeDirections: Record<Edge, ResizeDirection> = {
+  n: 'North',
+  s: 'South',
+  e: 'East',
+  w: 'West',
+  ne: 'NorthEast',
+  nw: 'NorthWest',
+  se: 'SouthEast',
+  sw: 'SouthWest',
+}
+
+/* Corners before edges, so the corners win the overlap in source order. */
+const edgeStyles: Record<Edge, string> = {
+  nw: 'left-0 top-0 h-3 w-3 cursor-nwse-resize',
+  ne: 'right-0 top-0 h-3 w-3 cursor-nesw-resize',
+  sw: 'bottom-0 left-0 h-3 w-3 cursor-nesw-resize',
+  se: 'bottom-0 right-0 h-3 w-3 cursor-nwse-resize',
+  n: 'left-3 right-3 top-0 h-1.5 cursor-ns-resize',
+  s: 'bottom-0 left-3 right-3 h-1.5 cursor-ns-resize',
+  w: 'bottom-3 left-0 top-3 w-1.5 cursor-ew-resize',
+  e: 'bottom-3 right-0 top-3 w-1.5 cursor-ew-resize',
+}
+
+export function ResizeEdges() {
+  const [needed, setNeeded] = useState(false)
+
+  useEffect(() => {
+    let live = true
+
+    // Asked of the window rather than assumed from config, so the overlay cannot
+    // disagree with the window about what it looks like.
+    void getCurrentWindow()
+      .isDecorated()
+      .then((decorated) => {
+        if (live && !decorated) setNeeded(true)
+      })
+
+    return () => {
+      live = false
+    }
+  }, [])
+
+  if (!needed) return null
+
+  return (
+    <div className="pointer-events-none fixed inset-[-4px] z-40">
+      {(Object.keys(edgeDirections) as Edge[]).map((edge) => (
+        <div
+          key={edge}
+          data-tauri-drag-region="false"
+          onMouseDown={(event) => {
+            event.preventDefault()
+            void getCurrentWindow().startResizeDragging(edgeDirections[edge])
+          }}
+          className={`pointer-events-auto absolute ${edgeStyles[edge]}`}
+        />
+      ))}
+    </div>
   )
 }
 

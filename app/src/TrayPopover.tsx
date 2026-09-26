@@ -3,7 +3,7 @@ import type { CSSProperties } from 'react'
 import { listen } from '@tauri-apps/api/event'
 import { invoke } from '@tauri-apps/api/core'
 
-import { Button, StatusDot, healthOf, tones } from './components/ui'
+import { Button, StatusDot, WindowControls, healthOf, tones } from './components/ui'
 import type { ProviderOverview, RefreshOutcome } from './lib/api'
 import * as api from './lib/api'
 import { relativeTime, usd } from './lib/format'
@@ -88,12 +88,20 @@ export function TrayPopover() {
 
   return (
     <div className="flex h-full flex-col bg-surface">
-      <div className="flex items-center gap-2 border-b border-line px-3.5 py-2.5">
+      {/* The popover is frameless, so this strip is both its heading and its title
+          bar: drag it to move the popover, and the control on the right quits the
+          app after asking. Hiding the popover is what losing focus already does, so
+          a button for it would be a second way to do one thing. */}
+      <div
+        data-tauri-drag-region="deep"
+        className="flex items-center gap-2 border-b border-line px-3.5 py-2.5"
+      >
         <StatusDot tone={overallTone} />
         <span className="text-[12px] font-medium">Meterix</span>
         <span className="num ml-auto text-[12px]">
           {balances.length === 0 ? '—' : usd(total).slice(1)}
         </span>
+        <WindowControls window="popover" />
       </div>
 
       <div className="flex-1 overflow-y-auto">

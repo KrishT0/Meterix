@@ -10,7 +10,7 @@
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 use std::time::Duration;
 
 use serde::Serialize;
@@ -395,6 +395,16 @@ async fn set_key(provider: String, key: String) -> Result<SaveKeyOutcome, String
     })
 }
 
+/// Quit the app, from the window rather than the tray menu.
+///
+/// Exactly the tray's Quit: set the flag, then ask to exit. The window asks first,
+/// because a watcher that stops watching on a stray click says nothing about it.
+#[tauri::command]
+fn quit_app(app: AppHandle) {
+    app.state::<Quitting>().0.store(true, Ordering::SeqCst);
+    app.exit(0);
+}
+
 /// Drops the keychain entry. Stored readings stay, so this is reversible.
 ///
 /// Returns the environment variable still supplying a key, if one is, so the
@@ -688,7 +698,16 @@ fn spawn_poller(app: AppHandle) {
     });
 }
 
-fn build_tray(app: &AppHandle, quitting: Arc<AtomicBool>) -> tauri::Result<()> {
+/// The one thing that lets the process exit.
+///
+/// `ExitRequested` is prevented unless this is set, which is what keeps the app
+/// running with every window closed, since that is the point of a tray app. Two
+/// things set it, and both are deliberate acts: the tray menu's Quit, and the
+/// window's own close control after asking.
+#[derive(Default)]
+struct Quitting(AtomicBool);
+
+fn build_tray(app: &AppHandle) -> tauri::Result<()> {
     let open = MenuItem::with_id(app, "open", "Open dashboard", true, None::<&str>)?;
     let refresh = MenuItem::with_id(app, "refresh", "Refresh now", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit Meterix", true, None::<&str>)?;
@@ -713,7 +732,7 @@ fn build_tray(app: &AppHandle, quitting: Arc<AtomicBool>) -> tauri::Result<()> {
                 });
             }
             "quit" => {
-                quitting.store(true, Ordering::SeqCst);
+                app.state::<Quitting>().0.store(true, Ordering::SeqCst);
                 app.exit(0);
             }
             _ => {}
@@ -1022,8 +1041,6 @@ fn set_export_directory(app: AppHandle) -> Result<Option<String>, String> {
 }
 
 fn main() {
-    let quitting = Arc::new(AtomicBool::new(false));
-    let quit_flag = Arc::clone(&quitting);
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -1046,7 +1063,8 @@ fn main() {
             export_history,
             set_data_directory,
             set_export_directory,
-            set_provider_enabled
+            set_provider_enabled,
+            quit_app
         ])
         .setup(move |app| {
             // Before the poller or any window touches the database: an earlier build
@@ -1063,8 +1081,8 @@ fn main() {
             let handle = app.handle().clone();
 
             app.manage(LastOutcomes::default());
-            app.manage(LastOutcomes::default());
-            build_tray(&handle, Arc::clone(&quitting))?;
+            app.manage(Quitting::default());
+            build_tray(&handle)?;
 
             // Closing the dashboard hides it rather than tearing down its
             // webview, so reopening it is instant and the poller's events still
@@ -1089,11 +1107,11 @@ fn main() {
         })
         .build(tauri::generate_context!())
         .expect("the tauri application failed to start")
-        .run(move |_app, event| {
+        .run(move |app, event| {
             // With the windows closed the poller keeps running, which is the
             // point of a tray app. Only the tray menu's Quit lets it exit.
             if let tauri::RunEvent::ExitRequested { api, .. } = event
-                && !quit_flag.load(Ordering::SeqCst)
+                && !app.state::<Quitting>().0.load(Ordering::SeqCst)
             {
                 api.prevent_exit();
             }
