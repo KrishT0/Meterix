@@ -1,0 +1,26 @@
+# Every text file in this repository is UTF-8 with LF endings, on every platform
+# and whatever a machine's global `core.autocrlf` happens to be. Without this,
+# checking out on Windows rewrites every line ending on the way in and each commit
+# prints a warning about the ones it is about to change. The warnings are noise,
+# and noise is how a real one gets missed.
+* text=auto eol=lf
+
+# Never convert these: a line-ending pass over a font or an icon corrupts it.
+*.woff2 binary
+*.woff binary
+*.ico binary
+*.icns binary
+*.png binary
+*.jpg binary
+*.db binary
+
+# Keep the licence texts byte-exact. They are quoted by other projects and by
+# package registries, and a rewritten line ending is a different file.
+LICENSE-MIT -text
+LICENSE-APACHE -text
+
+# A source listing that Git counts wrong is a listing that looks like a merge
+# conflict in review. These are the generated or vendored ones, marked so they do
+# not appear in language statistics.
+Cargo.lock linguist-generated
+app/package-lock.json linguist-generated
