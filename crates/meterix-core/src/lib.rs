@@ -2158,6 +2158,35 @@ pub fn provider_rows(connection: &Connection) -> Result<Vec<ProviderRow>> {
         .context("could not read the providers")
 }
 
+/// The basis of each provider's newest reading, or `None` where it has none.
+///
+/// A screen needs this to know whether a dollar threshold means anything for a
+/// provider. One reporting a character allowance has no use for one, and a
+/// provider with no reading yet is simply unknown, which is a different answer.
+pub fn latest_bases(connection: &Connection) -> Result<Vec<(String, Option<Basis>)>> {
+    let mut statement = connection.prepare(
+        "SELECT providers.name,
+                (SELECT balance_snapshots.basis
+                 FROM balance_snapshots
+                 WHERE balance_snapshots.provider_id = providers.id
+                 ORDER BY balance_snapshots.recorded_at DESC, balance_snapshots.id DESC
+                 LIMIT 1)
+         FROM providers
+         ORDER BY providers.id",
+    )?;
+
+    let rows = statement.query_map([], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, Option<String>>(1)?
+                .map(|basis| Basis::from_db(&basis)),
+        ))
+    })?;
+
+    rows.collect::<rusqlite::Result<Vec<_>>>()
+        .context("could not read what each provider's latest reading meant")
+}
+
 /// Switch a provider on or off without deleting its key or its history.
 ///
 /// The reason this exists rather than "remove": a provider someone has stopped
@@ -3924,6 +3953,40 @@ provider_threshold_usd,key_fingerprint"
         )
         .expect_err("refused");
         assert!(matches!(error, ProviderError::Unauthorized), "{error:?}");
+    }
+
+    /// A screen has to know whether a dollar threshold means anything for a
+    /// provider, and "no reading yet" is a different answer from "not money": the
+    /// first keeps the control, the second does not offer it.
+    #[test]
+    fn a_screen_can_tell_which_providers_numbers_are_money() {
+        let connection = memory_database();
+
+        let latest = |name: &str| -> Option<Basis> {
+            latest_bases(&connection)
+                .expect("bases")
+                .into_iter()
+                .find(|(row, _)| row == name)
+                .and_then(|(_, basis)| basis)
+        };
+
+        // Nothing read yet: unknown.
+        assert_eq!(latest("elevenlabs"), None);
+
+        // A character allowance answers it in the negative.
+        let mut quota = balance(Basis::Quota, 12_000.0, None, None);
+        quota.provider = "elevenlabs".to_string();
+        save_snapshot(&connection, &quota).expect("saved");
+
+        assert_eq!(latest("elevenlabs"), Some(Basis::Quota));
+        assert_eq!(latest("elevenlabs").map(Basis::is_balance), Some(false));
+
+        // A balance answers it in the positive.
+        let mut money = balance(Basis::AccountCredits, 5.0, Some(5.0), None);
+        money.provider = "deepseek".to_string();
+        save_snapshot(&connection, &money).expect("saved");
+
+        assert_eq!(latest("deepseek").map(Basis::is_balance), Some(true));
     }
 
     #[test]

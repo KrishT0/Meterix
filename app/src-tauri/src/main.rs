@@ -25,8 +25,8 @@ use tauri_plugin_dialog::DialogExt;
 use meterix_core::{
     Basis, MISSING_CREDENTIAL_KIND, Notice, PROVIDERS, Settings, Snapshot, adopt_legacy_database,
     credential_hint, display_name, due_providers, export_directory, fallback_thresholds,
-    fetch_selected, first_reading_at, forget_key, history, history_csv, load_settings, open_database,
-    provider_fingerprint, provider_intervals, provider_rows, provider_thresholds,
+    fetch_selected, first_reading_at, forget_key, history, history_csv, latest_bases, load_settings,
+    open_database, provider_fingerprint, provider_intervals, provider_rows, provider_thresholds,
     record_attempts, requested_providers, resolved_thresholds, save_settings as persist_settings,
     save_snapshot, save_verified_key, set_provider_enabled as store_enabled,
     set_provider_interval as store_interval, set_provider_threshold as store_threshold,
@@ -772,6 +772,10 @@ struct ProviderSetting {
     /// fact rather than a note taken when the row was first written. Null until
     /// it has a reading.
     first_reading_at: Option<String>,
+    /// Whether a dollar threshold means anything for this provider: true when its
+    /// latest reading was money, false when it was a character allowance or spend,
+    /// and null when there is no reading yet, which is not the same as false.
+    threshold_applies: Option<bool>,
     /// How often this provider alone is checked. Null when it uses the app-wide
     /// interval.
     poll_interval_minutes: Option<u32>,
@@ -787,6 +791,10 @@ fn settings(app: AppHandle) -> Result<SettingsView, String> {
     let fallback = fallback_thresholds(&connection).map_err(|error| error.to_string())?;
     let started = first_reading_at(&connection).map_err(|error| error.to_string())?;
     let intervals = provider_intervals(&connection).map_err(|error| error.to_string())?;
+    let bases: HashMap<String, Option<Basis>> = latest_bases(&connection)
+        .map_err(|error| error.to_string())?
+        .into_iter()
+        .collect();
     // The rows, not the compiled registry: a provider added as a row has to appear
     // here too, or it would be on the dashboard with no way to configure it.
     let rows = provider_rows(&connection).map_err(|error| error.to_string())?;
@@ -819,6 +827,11 @@ fn settings(app: AppHandle) -> Result<SettingsView, String> {
                     .iter()
                     .find(|(provider, _)| provider == name)
                     .and_then(|(_, value)| value.clone()),
+                threshold_applies: bases
+                    .get(name)
+                    .copied()
+                    .flatten()
+                    .map(Basis::is_balance),
                 poll_interval_minutes: intervals
                     .iter()
                     .find(|(provider, _)| provider == name)

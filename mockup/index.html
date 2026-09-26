@@ -716,7 +716,7 @@
               <span class="dim num">sk_…9d41</span>
               <span class="dim num" style="text-align:right">22 Sep</span>
               <span class="sright"><span class="sin sin-muted">30</span><span class="dim">m</span></span>
-              <span class="sright"><span class="dim">$</span><span class="sin">5.00</span></span>
+              <span class="sright"><span class="label-sm dim">not money</span></span>
               <span class="sw" style="margin-left:auto"><i></i></span>
             </div>
           </div>
@@ -727,8 +727,10 @@
               the earliest reading stored rather than when the key was added, so it works for a
               provider that was already configured — DeepInfra has no readings yet and shows a dash.
               <b>ElevenLabs</b> reports a character allowance rather than money, so it is counted in
-              the table in its own unit and left out of the total and the chart: a character is not a
-              dollar, and a dollar threshold says nothing about it.
+              the table in its own unit and left out of the total and the chart. Its threshold cell
+              reads <b>not money</b> rather than offering a box, because a dollar threshold says
+              nothing about a character count. A provider with no reading yet keeps its box, since
+              that is unknown rather than answered.
           </p>
         </div>
 

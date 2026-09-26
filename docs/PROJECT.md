@@ -429,6 +429,15 @@ A DeepSeek account funded in CNY is refused rather than relabelled: the message
 says which currency it found. Showing a figure in yuan under a dollar sign would
 be worse than an error, because it looks like an answer.
 
+**The settings screen does not offer a threshold where one cannot apply.** That
+needs the last reading's basis, which is not static: OpenRouter reports a balance
+or spend depending on the account, and ElevenLabs reports an allowance. So
+`latest_bases` carries it, and the payload distinguishes three answers rather
+than two. `false` means the number is known not to be money and the box is not
+offered; `null` means no reading yet, which is unknown rather than answered, so
+the box stays. Collapsing those two would hide a control from a provider that
+simply has not been polled.
+
 **Key prefixes are not disjoint, so the registry order is load-bearing.**
 OpenRouter's `sk-or-` keys also start with DeepSeek's `sk-`, and
 `provider_for_key` takes the first match. A test pins all five prefixes, because
@@ -756,11 +765,6 @@ nothing in the app acts on it.
 - "Remove a provider" removes a key. Switching a provider off is the gentler
   thing and keeps everything; removing is still the only way to get rid of a key,
   and the keychain entry is all it can mean.
-- The settings screen still offers a **Low at** box for a provider whose number is
-  not money, and setting it does nothing. The behaviour is right — a quota is
-  never compared to a dollar threshold — but the control should not be offered.
-  Hiding it needs the last reading's basis in the settings payload, and that is
-  not static: OpenRouter reports a balance or spend depending on the account.
 - A DeepSeek account funded in CNY is refused rather than shown in yuan, so it
   reports an error instead of a figure. Correct, and useless to anyone whose
   account is in yuan; it needs a currency on the snapshot to do better.

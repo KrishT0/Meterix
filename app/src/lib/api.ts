@@ -96,6 +96,12 @@ export interface ProviderSetting {
   firstReadingAt: string | null
   /** `null` when this provider uses the app-wide interval. */
   pollIntervalMinutes: number | null
+  /**
+   * Whether a dollar threshold means anything for this provider: `true` when its
+   * latest reading was money, `false` when it was a character allowance or spend,
+   * and `null` when there is no reading yet, which is not the same as false.
+   */
+  thresholdApplies: boolean | null
   keyHint: string
 }
 

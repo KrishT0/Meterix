@@ -453,18 +453,30 @@ export function Settings({ onClose }: { onClose: () => void }) {
                   />
                   <span className="label text-ink-muted">m</span>
                 </div>
-                <div className="flex items-center justify-end gap-1.5">
-                  <span className="label text-ink-muted">$</span>
-                  <input
-                    value={draft.providers[provider.name] ?? ''}
-                    placeholder={provider.fallbackThreshold.toFixed(2)}
-                    onChange={(event) => editProvider(provider.name, event.target.value)}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter') void save()
-                    }}
-                    className="num w-[54px] rounded-md border border-line bg-inset px-1.5 py-1 text-right text-[12px] text-ink outline-none placeholder:text-ink-muted"
-                  />
-                </div>
+                {/* A dollar threshold says nothing about a character allowance, so
+                    the box is not offered for a provider whose number is known not
+                    to be money. Null means no reading yet, and a control is not
+                    hidden on a guess. */}
+                {provider.thresholdApplies === false ? (
+                  <div className="flex justify-end">
+                    <span className="label-sm text-ink-muted" title="This provider reports an allowance, not money">
+                      not money
+                    </span>
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-end gap-1.5">
+                    <span className="label text-ink-muted">$</span>
+                    <input
+                      value={draft.providers[provider.name] ?? ''}
+                      placeholder={provider.fallbackThreshold.toFixed(2)}
+                      onChange={(event) => editProvider(provider.name, event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter') void save()
+                      }}
+                      className="num w-[54px] rounded-md border border-line bg-inset px-1.5 py-1 text-right text-[12px] text-ink outline-none placeholder:text-ink-muted"
+                    />
+                  </div>
+                )}
                 {/* The one control in this table that is not a draft. */}
                 <div className="flex justify-end">
                   <Switch
