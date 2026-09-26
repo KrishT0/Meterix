@@ -73,12 +73,10 @@ function TitleBar({ children }: { children: ReactNode }) {
       data-tauri-drag-region="deep"
       className="relative z-10 flex shrink-0 items-center gap-2.5 border-b border-line px-5 py-2 pl-4"
     >
-      {children}
-      {/* The controls sit at the right edge on every view, and that is decided
-          here rather than by each view's children. The dashboard used to carry a
-          spacer of its own, which settings did not, so there the controls were
-          left sitting next to the breadcrumb. */}
-      <div className="flex-1" />
+      {/* The children get all the room the bar has, so a view that wants something
+          at the right edge asks for it with `ml-auto` inside this, and the window
+          controls are at the far right either way. */}
+      <div className="flex min-w-0 flex-1 items-center gap-2.5">{children}</div>
       <WindowControls window="dashboard" />
     </header>
   )
@@ -346,7 +344,7 @@ export default function App() {
           {configured.length} tracked
         </Pill>
 
-        <div className="flex items-center gap-3">
+        <div className="ml-auto flex items-center gap-3">
           {/* Nothing tracked means nothing to report as fresh. "updated never"
               is worse copy than saying nothing at all. */}
           {configured.length > 0 ? (

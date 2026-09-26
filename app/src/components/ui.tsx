@@ -152,7 +152,10 @@ export function WindowControls({ window: which }: { window: 'dashboard' | 'popov
   }, [which])
 
   const controls: WindowControl[] =
-    which === 'dashboard' ? ['minimise', 'maximise', 'close'] : ['close']
+    // The popover has nothing to maximise to and no taskbar entry, so its minimise
+    // takes the window away instead of putting it in the taskbar. It asks nothing:
+    // hiding a popover is what losing focus already does, and it is not quitting.
+    which === 'dashboard' ? ['minimise', 'maximise', 'close'] : ['minimise', 'close']
 
   return (
     <>
