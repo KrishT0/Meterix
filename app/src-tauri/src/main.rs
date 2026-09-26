@@ -10,7 +10,7 @@
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde::Serialize;
@@ -623,11 +623,23 @@ fn popover_window(app: &AppHandle) -> Option<tauri::WebviewWindow> {
     // Attached here because this is now the only place the window is built. The
     // popover should disappear as soon as it stops being the thing being used,
     // which is what every tray popover does.
+    //
+    // With one exception, and it is the bug that made the first click open the
+    // popover and then take it away again a tenth of a second later. This window
+    // is built, positioned and shown inside a single click, so the focus event
+    // delivered just afterwards says it lost a focus it never had: nothing the
+    // user did produced it, and acting on it closed the window they had just
+    // asked for. On the second click the window already exists, no creation event
+    // is queued, and it behaved. So the loss is only believed once the popover has
+    // actually held focus.
     let handle = popover.clone();
-    popover.on_window_event(move |event| {
-        if let WindowEvent::Focused(false) = event {
+    let held_focus = Arc::new(AtomicBool::new(false));
+    popover.on_window_event(move |event| match event {
+        WindowEvent::Focused(true) => held_focus.store(true, Ordering::SeqCst),
+        WindowEvent::Focused(false) if held_focus.load(Ordering::SeqCst) => {
             let _ = handle.hide();
         }
+        _ => {}
     });
 
     Some(popover)

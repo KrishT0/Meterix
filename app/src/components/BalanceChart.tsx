@@ -40,6 +40,134 @@ const TICK_TARGET = 4
 const HALO = '0 0 5px var(--color-surface), 0 0 5px var(--color-surface)'
 
 /**
+ * A point as an SVG coordinate pair.
+ *
+ * Two decimals, which is already finer than anything a 1000-unit-wide plot can
+ * show, and it keeps the curve's control points close enough to exact that a
+ * reading is not nudged by the writing of it.
+ */
+function placed(point: [number, number]): string {
+  return `${point[0].toFixed(2)},${point[1].toFixed(2)}`
+}
+
+/**
+ * A number from a list the loops above have already filled.
+ *
+ * The fallback only satisfies the compiler's check on indexing, which is on in
+ * this project. Every call is in range, and a missing slope reading as flat is the
+ * honest answer for a gap that is not there.
+ */
+function numberAt(list: number[], index: number): number {
+  return list[index] ?? 0
+}
+
+/**
+ * A smooth line through every reading, which never invents a reading.
+ *
+ * Straight segments between points looked like a machine measuring at intervals,
+ * so the line is curved with monotone cubic interpolation (Fritsch–Carlson): the
+ * tangent at each point starts as the average of the two slopes meeting there,
+ * then gets pulled back wherever it would carry the curve past the readings either
+ * side of it. A plain spline through the same points is smoother still, but it
+ * overshoots, and a balance that fell from 40 to 12 would dip below 12 on the way.
+ * On a chart of measured money that reads as a reading that never happened.
+ *
+ * Points arrive as [x, y] in plot units, already placed.
+ */
+function smoothPath(points: [number, number][]): string {
+  const first = points[0]
+  const second = points[1]
+
+  if (!first) return ''
+  // With two readings there is nothing between them to bend, and any curve would
+  // be invented detail.
+  if (!second) return `M ${placed(first)}`
+  if (points.length === 2) return `M ${placed(first)} L ${placed(second)}`
+
+  const count = points.length
+  /** Horizontal gap between readings, and the slope across it. */
+  const gap: number[] = []
+  const slope: number[] = []
+  let previous: [number, number] | undefined
+
+  for (const point of points) {
+    if (previous) {
+      const width = point[0] - previous[0]
+      gap.push(width)
+      slope.push(width === 0 ? 0 : (point[1] - previous[1]) / width)
+    }
+
+    previous = point
+  }
+
+  const tangent: number[] = new Array(count).fill(0)
+  tangent[0] = numberAt(slope, 0)
+  tangent[count - 1] = numberAt(slope, count - 2)
+
+  for (let i = 1; i < count - 1; i += 1) {
+    const before = numberAt(slope, i - 1)
+    const after = numberAt(slope, i)
+
+    // A reading that turns around, rising before it and falling after, gets a flat
+    // tangent. Averaging there would point the curve whichever way the larger slope
+    // went, and it would leave the reading in the wrong direction before turning
+    // back, drawing a peak or a dip that was never measured. This rule is what
+    // actually bounds the curve; the averaging below it does not, on its own. It
+    // was missing at first and the check caught it: overshoot came out proportional
+    // to the size of the neighbouring jump.
+    tangent[i] = before * after > 0 ? (before + after) / 2 : 0
+  }
+
+  for (let i = 0; i < count - 1; i += 1) {
+    const steep = numberAt(slope, i)
+
+    if (steep === 0) {
+      // Two equal readings stay equal between them. Anything else bulges off a
+      // flat stretch, which is where a straight line looked most obviously wrong.
+      tangent[i] = 0
+      tangent[i + 1] = 0
+      continue
+    }
+
+    // Scaling both tangents of a segment by the same factor keeps the curve inside
+    // the readings it joins. Past nine the segment would double back on itself,
+    // which is the whole reason the factor is 3 divided by the hypotenuse.
+    const rise = numberAt(tangent, i) / steep
+    const fall = numberAt(tangent, i + 1) / steep
+    const bulge = rise * rise + fall * fall
+
+    if (bulge > 9) {
+      const scale = 3 / Math.sqrt(bulge)
+      tangent[i] = scale * rise * steep
+      tangent[i + 1] = scale * fall * steep
+    }
+  }
+
+  // Control points a third of the way along, which is where a cubic Bezier has to
+  // put them to leave and arrive at exactly those tangents.
+  let path = `M ${placed(first)}`
+
+  for (const [index, point] of points.entries()) {
+    const next = points[index + 1]
+    if (!next) break
+
+    const third = numberAt(gap, index) / 3
+    const leave: [number, number] = [
+      point[0] + third,
+      point[1] + numberAt(tangent, index) * third,
+    ]
+    const arrive: [number, number] = [
+      next[0] - third,
+      next[1] - numberAt(tangent, index + 1) * third,
+    ]
+
+    path += ` C ${placed(leave)} ${placed(arrive)} ${placed(next)}`
+  }
+
+  return path
+}
+
+/**
  * Round numbers for the y-axis.
  *
  * An axis reading $10.00, $12.50, $15.00 looks like a machine leaked its
@@ -236,12 +364,7 @@ export function BalanceChart({ series }: { series: Series[] }) {
   const topOf = (value: number) => `${((y(value) / HEIGHT) * 100).toFixed(3)}%`
 
   const pathOf = (points: SnapshotRow[]) =>
-    points
-      .map(
-        (point, index) =>
-          `${index === 0 ? 'M' : 'L'} ${x(timeOf(point)).toFixed(1)},${y(point.remaining).toFixed(1)}`,
-      )
-      .join(' ')
+    smoothPath(points.map((point) => [x(timeOf(point)), y(point.remaining)]))
 
   // Snap to a real reading rather than an arbitrary point on the line, so the
   // crosshair always sits on something that was actually measured.

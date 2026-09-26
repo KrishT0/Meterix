@@ -124,17 +124,14 @@ const controlPaths: Record<WindowControl, ReactNode> = {
   close: <path d="M4 4l8 8M12 4l-8 8" />,
 }
 
-/** What quitting means: ask first. A watcher that stops watching on a stray click
- *  says nothing about it, and this is the only way out that is not the tray menu. */
-function askToQuit() {
-  if (window.confirm('Quit Meterix? Balances will stop being checked.')) {
-    void invoke('quit_app')
-  }
-}
-
 /** The controls a window needs, and nothing else. */
 export function WindowControls({ window: which }: { window: 'dashboard' | 'popover' }) {
   const [maximised, setMaximised] = useState(false)
+  // Held here rather than asked for with `window.confirm`, which is not a dialog
+  // in this webview: nothing appeared, the call answered no, and quitting became a
+  // button that did nothing. The dashboard had already learned this once for
+  // removing a key and this one was left behind.
+  const [askingToQuit, setAskingToQuit] = useState(false)
 
   useEffect(() => {
     if (which !== 'dashboard') return
@@ -158,7 +155,8 @@ export function WindowControls({ window: which }: { window: 'dashboard' | 'popov
     which === 'dashboard' ? ['minimise', 'maximise', 'close'] : ['close']
 
   return (
-    <div className="ml-1 flex items-center gap-0.5 border-l border-line pl-2.5">
+    <>
+      <div className="ml-1 flex items-center gap-0.5 border-l border-line pl-2.5">
       {controls.map((control) => (
         <button
           key={control}
@@ -173,7 +171,7 @@ export function WindowControls({ window: which }: { window: 'dashboard' | 'popov
             } else if (control === 'maximise') {
               void current.toggleMaximize()
             } else {
-              askToQuit()
+              setAskingToQuit(true)
             }
           }}
           aria-label={control === 'maximise' && maximised ? 'Restore' : control}
@@ -195,7 +193,21 @@ export function WindowControls({ window: which }: { window: 'dashboard' | 'popov
           </svg>
         </button>
       ))}
-    </div>
+      </div>
+
+      {/* Quitting stops the watching, so it is worth one question. A stray click on
+          the only control that ends the app says nothing about wanting it ended. */}
+      {askingToQuit ? (
+        <ConfirmDialog
+          title="Quit Meterix?"
+          detail="Balances stop being checked until you open it again. Readings already stored are kept."
+          confirmLabel="Quit"
+          cancelLabel="Keep running"
+          onConfirm={() => void invoke('quit_app')}
+          onCancel={() => setAskingToQuit(false)}
+        />
+      ) : null}
+    </>
   )
 }
 
