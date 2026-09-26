@@ -128,6 +128,9 @@ meterix-cli fetch [provider]               read one provider, or all of them
 meterix-cli history <provider> [limit]     recent readings, newest first
 meterix-cli export [provider]              every reading as CSV, on standard output
 meterix-cli providers                      what is tracked, and what is stored
+meterix-cli add-gateway <name> --shape <shape> --base-url <url>
+                                           track a gateway that speaks a known shape
+meterix-cli remove-gateway <name>          remove one added that way
 meterix-cli set-key <provider> <key>       store a key in the OS keychain
 meterix-cli forget-key <provider>          remove a stored key
 ```
@@ -158,12 +161,12 @@ Edge runtime rather than anything this project builds.
 
 Worth knowing before you rely on it.
 
-- **Four providers, and adding another is a code change.** Which providers are
-  tracked is data — each one is a row you can switch off and back on — but the
-  adapter that knows how to read a given provider's balance is hand-written Rust,
-  and no configuration describes OpenRouter's three-way choice between account
-  credits, a key cap and spend. So a new *kind* of provider means new code; using
-  or not using one you have is a switch.
+- **Four providers, and more by configuration.** Which providers are tracked is
+  data: each one is a row you can switch off and back on, and a gateway that
+  speaks a shape Meterix already understands can be added from the command line
+  without rebuilding it. A provider whose API speaks a *new* shape is still a code
+  change. That is the honest ceiling: no configuration describes OpenRouter's
+  three-way choice between account credits, a key cap and spend.
 - **Most providers do not publish a balance.** DeepSeek does, in money. ElevenLabs
   publishes a character allowance instead, which is shown in its own unit and left
   out of the total because it is not dollars. OpenAI and Anthropic publish spend

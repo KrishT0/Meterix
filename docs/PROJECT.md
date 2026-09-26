@@ -373,7 +373,25 @@ app cannot back.
 
 There is deliberately no `kind` column. The row's `name` already selects the
 adapter, and a column that always equals another column is a second copy of one
-fact rather than a second fact.
+fact rather than a second fact. What a row does carry is `shape`: null means the
+name selects a compiled adapter, and anything else names a shape this build can
+read against the row's own `base_url`.
+
+**A provider whose API speaks a known shape needs no code at all.**
+`GATEWAY_SHAPES` names the shapes the build has, and today that is one:
+`openrouter_compatible`, the adapter the compiled `openrouter` kind also uses,
+pointed at the row's base URL instead of a constant. `meterix-cli add-gateway`
+adds such a row and `remove-gateway` takes it away. The separation is the point:
+adding a *shape* is a code change, and adding a provider that speaks one is a row.
+No configuration describes OpenRouter's three-way choice between account credits,
+a key cap and spend, which is why the parsers stay code.
+
+Two refusals protect the shape of the data. A gateway row is refused if its name
+belongs to a compiled adapter, if the shape is unknown, if the base URL is not a
+URL, or if the name is taken. And removing one is refused once it has readings,
+because a row added again gets a new id and could not adopt the old history;
+switching it off keeps the history and stops the polling. A row that has never
+been read, which is what a mistyped one is, is removed outright.
 
 An unqualified fetch — the CLI with no provider, or the window's Refresh — means
 everything *tracked*, not every adapter the build has. A switched-off provider is
