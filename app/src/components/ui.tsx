@@ -163,42 +163,59 @@ export function WindowControls({ window: which }: { window: 'dashboard' | 'popov
   return (
     <>
       <div className="ml-1 flex items-center gap-0.5 border-l border-line pl-2.5">
-      {controls.map((control) => (
-        <button
-          key={control}
-          type="button"
-          data-tauri-drag-region="false"
-          onClick={() => {
-            const current = getCurrentWindow()
+      {controls.map((control) => {
+        // The popover's close ends the app, so it is named for that rather than for
+        // the shape of the icon.
+        const label =
+          control === 'close' && which === 'popover'
+            ? 'Quit Meterix'
+            : control === 'maximise' && maximised
+              ? 'Restore'
+              : control
 
-            if (control === 'minimise') {
-              // A popover with no taskbar entry has nothing to minimise to.
-              void (which === 'popover' ? current.hide() : current.minimize())
-            } else if (control === 'maximise') {
-              void current.toggleMaximize()
-            } else {
-              setAskingToQuit(true)
-            }
-          }}
-          aria-label={control === 'maximise' && maximised ? 'Restore' : control}
-          title={control === 'maximise' && maximised ? 'Restore' : control}
-          className={`flex h-7 w-8 items-center justify-center rounded-[7px] text-ink-dim transition hover:bg-panel hover:text-ink ${
-            control === 'close' ? 'hover:bg-copper-tint hover:text-copper' : ''
-          }`}
-        >
-          <svg
-            width="12"
-            height="12"
-            viewBox="0 0 16 16"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.4"
-            strokeLinecap="round"
+        return (
+          <button
+            key={control}
+            type="button"
+            data-tauri-drag-region="false"
+            onClick={() => {
+              const current = getCurrentWindow()
+
+              if (control === 'minimise') {
+                // A popover with no taskbar entry has nothing to minimise to.
+                void (which === 'popover' ? current.hide() : current.minimize())
+              } else if (control === 'maximise') {
+                void current.toggleMaximize()
+              } else if (which === 'popover') {
+                // Quitting stops the watching, so it is the one control worth a
+                // question, and this is the only window that has it.
+                setAskingToQuit(true)
+              } else {
+                // Closing the window hides it: the tray keeps checking, which is what
+                // the settings screen promises. Nothing is lost, so nothing is asked.
+                void current.close()
+              }
+            }}
+            aria-label={label}
+            title={label}
+            className={`flex h-7 w-8 items-center justify-center rounded-[7px] text-ink-dim transition hover:bg-panel hover:text-ink ${
+              control === 'close' ? 'hover:bg-copper-tint hover:text-copper' : ''
+            }`}
           >
-            {controlPaths[control]}
-          </svg>
-        </button>
-      ))}
+            <svg
+              width="12"
+              height="12"
+              viewBox="0 0 16 16"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.4"
+              strokeLinecap="round"
+            >
+              {controlPaths[control]}
+            </svg>
+          </button>
+        )
+      })}
       </div>
 
       {/* Quitting stops the watching, so it is worth one question. A stray click on
