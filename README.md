@@ -14,6 +14,9 @@ popover on the tray icon when you only want a glance.
 - Checks every configured provider on a timer, 30 minutes by default, or on an
   interval you set for one provider alone. Intervals are honoured to within 30
   seconds.
+- Watches the providers you tell it to. Switching one off stops the polling and
+  takes it off the dashboard, and keeps both its key and every reading it has
+  collected, so a provider you stop using for a while comes back whole.
 - Shows each provider's remaining balance, where the number came from, and when it was read.
 - Charts balance over time, using only readings from the credential you have now. Swap in a different account and the old readings are not drawn as one continuous line.
 - Keeps a per-provider low threshold. Leave one blank and the provider's own
@@ -121,6 +124,7 @@ checking a key without opening the app.
 meterix-cli fetch [provider]               read one provider, or all of them
 meterix-cli history <provider> [limit]     recent readings, newest first
 meterix-cli export [provider]              every reading as CSV, on standard output
+meterix-cli providers                      what is tracked, and what is stored
 meterix-cli set-key <provider> <key>       store a key in the OS keychain
 meterix-cli forget-key <provider>          remove a stored key
 ```
@@ -150,7 +154,12 @@ Edge runtime rather than anything this project builds.
 
 Worth knowing before you rely on it.
 
-- **Two providers.** The list is compiled in, not data. Adding one is a code change.
+- **Two providers, and adding a third is a code change.** Which providers are
+  tracked is data — each one is a row you can switch off and back on — but the
+  adapter that knows how to read a given provider's balance is hand-written Rust,
+  and no configuration describes OpenRouter's three-way choice between account
+  credits, a key cap and spend. So a new *kind* of provider means new code; using
+  or not using one you have is a switch.
 - **No installer has been built.** The bundler fetches NSIS on first run, and that download has not completed in the environment this was developed in. The config is ready; nothing has been produced from it.
 - **A removed key can come back.** Removing a provider deletes its keychain entry, but if the matching environment variable is set, the app keeps using it and the provider stays on the list. The app says which variable, since it cannot unset one for you.
 - **Dark only.** There is no light theme.

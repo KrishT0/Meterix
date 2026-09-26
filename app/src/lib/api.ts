@@ -73,6 +73,11 @@ export interface SettingsView {
 }
 
 export interface ProviderSetting {
+  /**
+   * Whether the app is watching this provider. Off keeps the key and the
+   * readings and stops the polling.
+   */
+  enabled: boolean
   name: string
   displayName: string
   /** `null` when this provider has no threshold of its own. */
@@ -114,6 +119,16 @@ export const setProviderThreshold = (provider: string, threshold: number | null)
 /** `null` puts the provider back on the app-wide interval. */
 export const setProviderInterval = (provider: string, minutes: number | null) =>
   invoke<void>('set_provider_interval', { provider, minutes })
+
+/**
+ * Watch this provider, or stop watching it.
+ *
+ * Nothing is deleted either way: the key stays in the keychain and the readings
+ * stay in the database. A provider switched off is not polled and not reported
+ * on, which is why the tray is recoloured by the same call.
+ */
+export const setProviderEnabled = (provider: string, enabled: boolean) =>
+  invoke<void>('set_provider_enabled', { provider, enabled })
 
 /**
  * Write the reading history out as CSV, in the chosen folder.

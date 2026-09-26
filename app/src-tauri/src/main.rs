@@ -23,14 +23,14 @@ use tauri_plugin_notification::NotificationExt;
 use tauri_plugin_dialog::DialogExt;
 
 use meterix_core::{
-    Basis, MISSING_CREDENTIAL_KIND, Notice, PROVIDERS, Settings, Snapshot, credential_hint,
-    adopt_legacy_database, display_name, due_providers, export_directory, fallback_thresholds,
+    Basis, MISSING_CREDENTIAL_KIND, Notice, PROVIDERS, Settings, Snapshot, adopt_legacy_database,
+    credential_hint, display_name, due_providers, export_directory, fallback_thresholds,
     fetch_selected, first_reading_at, forget_key, history, history_csv, load_settings, open_database,
-    provider_fingerprint, provider_intervals,
-    provider_thresholds, record_attempts, requested_providers, resolved_thresholds,
-    save_settings as persist_settings, save_snapshot, save_verified_key,
+    provider_enabled, provider_fingerprint, provider_intervals, provider_thresholds,
+    record_attempts, requested_providers, resolved_thresholds, save_settings as persist_settings,
+    save_snapshot, save_verified_key, set_provider_enabled as store_enabled,
     set_provider_interval as store_interval, set_provider_threshold as store_threshold,
-    take_notifications,
+    take_notifications, tracked_kinds, tracked_providers,
 };
 
 /// One provider, as the dashboard needs it: whether a key exists, and the most
@@ -105,29 +105,32 @@ fn overview() -> Result<Vec<ProviderOverview>, String> {
     // fine in the tray.
     let thresholds = resolved_thresholds(&connection).map_err(|error| error.to_string())?;
 
-    PROVIDERS
-        .iter()
+    // Only what is being tracked. A provider switched off keeps its history and
+    // its key, and showing it here with stale numbers would be the dashboard
+    // claiming to know something it has stopped checking.
+    tracked_providers(&connection)
+        .map_err(|error| error.to_string())?
+        .into_iter()
         .map(|name| {
-            let latest = history(&connection, name, 1)
+            let latest = history(&connection, &name, 1)
                 .map_err(|error| error.to_string())?
                 .into_iter()
                 .next();
 
             // One keychain read rather than two: the hint answers both "what is
             // stored" and "is anything stored".
-            let hint = credential_hint(name);
+            let hint = credential_hint(&name);
 
             let threshold = thresholds
                 .iter()
-                .find(|(provider, _)| provider == name)
+                .find(|(provider, _)| *provider == name)
                 .map_or_else(
                     || settings.low_balance_threshold,
                     |(_, threshold)| *threshold,
                 );
 
             Ok(ProviderOverview {
-                name: (*name).to_string(),
-                display_name: display_name(name).to_string(),
+                display_name: display_name(&name).to_string(),
                 configured: hint.is_some(),
                 key_hint: hint,
                 balance: latest.as_ref().map(|snapshot| snapshot.remaining),
@@ -137,7 +140,8 @@ fn overview() -> Result<Vec<ProviderOverview>, String> {
                 spend_window_days: latest.as_ref().and_then(|snapshot| snapshot.spend_window_days),
                 recorded_at: latest.map(|snapshot| snapshot.recorded_at),
                 threshold,
-                key_fingerprint: provider_fingerprint(name),
+                key_fingerprint: provider_fingerprint(&name),
+                name,
             })
         })
         .collect()
@@ -150,7 +154,19 @@ async fn refresh_and_store(
     app: &AppHandle,
     only: Option<&str>,
 ) -> Result<Vec<RefreshOutcome>, String> {
-    let selection = requested_providers(only).map_err(|error| error.to_string())?;
+    let selection = match only {
+        // Named explicitly: fetched whether or not it is tracked, because asking
+        // for one provider by name is a deliberate act.
+        Some(name) => requested_providers(Some(name)).map_err(|error| error.to_string())?,
+        // Nothing named: everything being watched. A switched-off provider is one
+        // the app has been told to leave alone, and fetching it here would store
+        // readings the dashboard will not show and the notifier must not act on.
+        None => {
+            let connection = open_database().map_err(|error| error.to_string())?;
+
+            tracked_kinds(&connection).map_err(|error| error.to_string())?
+        }
+    };
 
     refresh_selected(app, &selection).await
 }
@@ -733,6 +749,9 @@ struct SettingsView {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ProviderSetting {
+    /// Whether the app is watching this provider. Off keeps the key and the
+    /// readings and stops the polling.
+    enabled: bool,
     name: String,
     display_name: String,
     /// Null when this provider uses the app default.
@@ -761,6 +780,7 @@ fn settings(app: AppHandle) -> Result<SettingsView, String> {
     let fallback = fallback_thresholds(&connection).map_err(|error| error.to_string())?;
     let started = first_reading_at(&connection).map_err(|error| error.to_string())?;
     let intervals = provider_intervals(&connection).map_err(|error| error.to_string())?;
+    let enabled = provider_enabled(&connection).map_err(|error| error.to_string())?;
 
     // Only providers that actually hold a key. Listing every supported provider
     // meant a fresh install showed two rows and two threshold boxes, which reads
@@ -770,6 +790,10 @@ fn settings(app: AppHandle) -> Result<SettingsView, String> {
         .iter()
         .filter_map(|name| {
             Some(ProviderSetting {
+                enabled: enabled
+                    .iter()
+                    .find(|(provider, _)| provider == name)
+                    .is_none_or(|(_, on)| *on),
                 name: (*name).to_string(),
                 display_name: display_name(name).to_string(),
                 low_balance_threshold: own
@@ -870,6 +894,24 @@ fn set_provider_threshold(
     {
         let connection = open_database().map_err(|error| error.to_string())?;
         store_threshold(&connection, &provider, threshold).map_err(|error| error.to_string())?;
+    }
+
+    recolour_tray(&app);
+
+    Ok(())
+}
+
+/// Watch this provider, or stop watching it.
+///
+/// Nothing is deleted: the key stays in the keychain and the readings stay in the
+/// database, because readings cannot be fetched again once they are gone. A
+/// provider switched off is not polled and not reported on.
+#[tauri::command]
+fn set_provider_enabled(app: AppHandle, provider: String, enabled: bool) -> Result<(), String> {
+    {
+        let connection = open_database().map_err(|error| error.to_string())?;
+
+        store_enabled(&connection, &provider, enabled).map_err(|error| error.to_string())?;
     }
 
     recolour_tray(&app);
@@ -980,7 +1022,8 @@ fn main() {
             set_provider_interval,
             export_history,
             set_data_directory,
-            set_export_directory
+            set_export_directory,
+            set_provider_enabled
         ])
         .setup(move |app| {
             // Before the poller or any window touches the database: an earlier build

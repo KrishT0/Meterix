@@ -136,6 +136,7 @@ stub. That is an estimate, and the one number in this section that is.
 meterix-cli fetch [provider]               fetch one provider, or all of them
 meterix-cli history <provider> [limit]     recent snapshots, newest first
 meterix-cli export [provider]              every reading as CSV, on standard output
+meterix-cli providers                      what is tracked, and what is stored
 meterix-cli set-key <provider> <key>       store an API key in the OS keychain
 meterix-cli forget-key <provider>          remove a stored API key
 ```
@@ -152,7 +153,7 @@ As built, which is not what the original draft said:
 ```sql
 providers (
   id, name, low_balance_threshold, notified_below, notified_error_kind,
-  poll_interval_minutes, last_attempt_at
+  poll_interval_minutes, last_attempt_at, enabled
 )
 
 balance_snapshots (
@@ -344,6 +345,33 @@ what the interval is honoured to: a one-minute interval would be doubled by a
 
 Every path that fetches records the attempt, not just the poller, so pressing
 Refresh also pushes the next automatic check out.
+
+**The adapters are code; which providers are watched is data.** `PROVIDERS` lists
+the kinds this build can talk to, and each one is a hand-written adapter because
+reading a provider's balance genuinely is code — OpenRouter's is a three-way
+choice between account credits, a key cap and spend, which no configuration
+describes. What the database decides is which of those rows exist and which are
+`enabled`. So the app's behaviour is driven by the `providers` table: the poller
+fetches what is due among the enabled rows, the dashboard shows the enabled rows,
+and the tray and the notifier skip anything switched off.
+
+Switching a provider off keeps its row, its key in the keychain and every reading
+in the database; it stops the polling and takes it off the dashboard. That is why
+it exists next to "remove", which is still the only way to delete a key. A
+switched-off provider is deliberately absent from `resolved_thresholds` too: a
+tray that still colours itself for something nobody is watching is a claim the
+app cannot back.
+
+There is deliberately no `kind` column. The row's `name` already selects the
+adapter, and a column that always equals another column is a second copy of one
+fact rather than a second fact.
+
+An unqualified fetch — the CLI with no provider, or the window's Refresh — means
+everything *tracked*, not every adapter the build has. A switched-off provider is
+one the app has been told to leave alone, so fetching it would store readings the
+dashboard will not show and the notifier must not act on. Naming a provider
+explicitly is still honoured whether or not it is tracked, because asking for one
+by name is a deliberate act.
 
 **Low is a per-provider threshold, resolved in one place.** `effective_threshold`
 is the only thing that decides whether a balance counts as low, and it resolves
@@ -664,8 +692,9 @@ nothing in the app acts on it.
 - Light mode is not built. The palette in `app/src/index.css` is dark only.
 - The window keeps its native title bar rather than the reference design's
   custom one, so a Windows title bar sits above the app header.
-- "Remove a provider" removes a key. Since the set of supported providers is
-  compiled in, that is all it can mean until providers are data.
+- "Remove a provider" removes a key. Switching a provider off is the gentler
+  thing and keeps everything; removing is still the only way to get rid of a key,
+  and the keychain entry is all it can mean.
 - A headless or minimal Linux install may have no Secret Service, so `keyring`
   will fail. Cross-platform is not free on that leg.
 - Installers cannot be built in this environment. `npm run tauri build` gets

@@ -159,6 +159,19 @@ export function Settings({ onClose }: { onClose: () => void }) {
     )
   }
 
+  /** Applied on click rather than through Save Changes: a switch that does
+   *  nothing until you press a button elsewhere reads as broken, and this is one
+   *  discrete choice rather than a draft. */
+  async function toggleTracked(name: string, enabled: boolean) {
+    try {
+      await api.setProviderEnabled(name, enabled)
+      setProblem(null)
+      await load()
+    } catch (error) {
+      setProblem(String(error))
+    }
+  }
+
   async function exportCsv() {
     try {
       setExported(await api.exportHistory())
@@ -398,18 +411,19 @@ export function Settings({ onClose }: { onClose: () => void }) {
           </div>
         ) : (
           <div className="mt-3 border-y border-line">
-            <div className="grid grid-cols-[1.2fr_1fr_0.6fr_0.7fr_0.8fr] gap-3 border-b border-line pb-2 pt-2.5">
+            <div className="grid grid-cols-[1.1fr_0.9fr_0.6fr_0.7fr_0.8fr_0.5fr] gap-3 border-b border-line pb-2 pt-2.5">
               <span className="label-sm text-ink-muted">Provider</span>
               <span className="label-sm text-ink-muted">Key</span>
               <span className="label-sm text-right text-ink-muted">Since</span>
               <span className="label-sm text-right text-ink-muted">Every</span>
               <span className="label-sm text-right text-ink-muted">Low at</span>
+              <span className="label-sm text-right text-ink-muted">Tracked</span>
             </div>
 
             {settings.providers.map((provider) => (
               <div
                 key={provider.name}
-                className="grid grid-cols-[1.2fr_1fr_0.6fr_0.7fr_0.8fr] items-center gap-3 border-b border-line/60 py-2.5 last:border-b-0"
+                className="grid grid-cols-[1.1fr_0.9fr_0.6fr_0.7fr_0.8fr_0.5fr] items-center gap-3 border-b border-line/60 py-2.5 last:border-b-0"
               >
                 <span className="num text-[12px]">{provider.displayName}</span>
                 <span className="num truncate text-[11px] text-ink-dim">{provider.keyHint}</span>
@@ -451,6 +465,14 @@ export function Settings({ onClose }: { onClose: () => void }) {
                     className="num w-[54px] rounded-md border border-line bg-inset px-1.5 py-1 text-right text-[12px] text-ink outline-none placeholder:text-ink-muted"
                   />
                 </div>
+                {/* The one control in this table that is not a draft. */}
+                <div className="flex justify-end">
+                  <Switch
+                    on={provider.enabled}
+                    onToggle={() => void toggleTracked(provider.name, !provider.enabled)}
+                    label={`Track ${provider.displayName}`}
+                  />
+                </div>
               </div>
             ))}
 
@@ -460,6 +482,9 @@ export function Settings({ onClose }: { onClose: () => void }) {
                 that is: the balance the provider itself calls low, or the default above for a
                 provider that publishes none. An empty interval follows the polling default
                 above, and the poller wakes every 30 seconds to check what is due.
+                <b>Tracked</b> saves as soon as it is clicked: switching a provider off stops the
+                polling and takes it off the dashboard, and keeps both the key and every reading it
+                has collected.
               </span>
             </div>
           </div>

@@ -8,9 +8,13 @@ use std::env;
 
 use anyhow::{Context, Result, anyhow};
 
+use std::collections::HashMap;
+
 use meterix_core::{
-    Balance, PROVIDERS, SaveOutcome, adopt_legacy_database, display_name, fetch_balances, forget_key,
-    history, history_csv, open_database, requested_providers, save_snapshot, save_verified_key,
+    Balance, Connection, PROVIDERS, SaveOutcome, adopt_legacy_database, display_name,
+    fetch_selected, first_reading_at, forget_key, history, history_csv, open_database,
+    provider_enabled, reading_counts, requested_providers, resolved_intervals,
+    resolved_thresholds, save_snapshot, save_verified_key, tracked_kinds,
 };
 
 const DEFAULT_HISTORY_LIMIT: usize = 20;
@@ -22,6 +26,7 @@ usage
   meterix-cli [fetch [provider]]        read every provider, store a reading
   meterix-cli history <provider> [n]    the last n readings, 20 by default
   meterix-cli export [provider]         every reading as CSV, on standard output
+  meterix-cli providers                 what is tracked, and what is stored
   meterix-cli set-key <provider> <key>  verify a key, then store it
   meterix-cli forget-key <provider>     remove the stored key
   meterix-cli help                      show this
@@ -48,8 +53,22 @@ fn amount(balance: &Balance) -> String {
 }
 
 async fn fetch(only: Option<&str>) -> Result<()> {
+    // Worked out before the await: a rusqlite connection held across one makes the
+    // future non-Send. Naming a provider explicitly fetches it whether or not it is
+    // tracked, since that is a deliberate act; naming none means everything being
+    // watched, because a switched-off provider is one the app has said to leave
+    // alone.
+    let selection = {
+        let connection = open_database()?;
+
+        match only {
+            Some(name) => requested_providers(Some(name))?,
+            None => tracked_kinds(&connection)?,
+        }
+    };
+
     let connection = open_database()?;
-    let outcomes = fetch_balances(only).await?;
+    let outcomes = fetch_selected(&selection).await?;
 
     let mut saved = 0usize;
     let mut failed: Vec<&str> = Vec::new();
@@ -134,6 +153,50 @@ fn window(days: Option<u32>) -> String {
     days.map_or_else(|| "all".to_string(), |days| format!("{days}d"))
 }
 
+/// What the app knows about each provider, and which ones it is watching.
+///
+/// `readings` is here because switching a provider off keeps its history, and a
+/// number going down would be the first sign that it did not.
+fn show_providers(connection: &Connection) -> Result<()> {
+    let thresholds: HashMap<String, f64> = resolved_thresholds(connection)?.into_iter().collect();
+    let intervals: HashMap<String, u32> = resolved_intervals(connection)?.into_iter().collect();
+    let started: HashMap<String, Option<String>> =
+        first_reading_at(connection)?.into_iter().collect();
+    let readings: HashMap<String, i64> = reading_counts(connection)?.into_iter().collect();
+
+    println!(
+        "{:<18} {:<8} {:>8} {:>7} {:>7} {:>9}",
+        "provider", "tracked", "low at", "every", "since", "readings"
+    );
+
+    for (name, enabled) in provider_enabled(connection)? {
+        // A switched-off provider has no resolved threshold or interval, because
+        // those are only worked out for what is being watched.
+        let low = thresholds
+            .get(&name)
+            .map_or_else(|| "-".to_string(), |value| format!("${value:.2}"));
+        let every = intervals
+            .get(&name)
+            .map_or_else(|| "-".to_string(), |minutes| format!("{minutes}m"));
+        let since = started
+            .get(&name)
+            .and_then(Option::as_deref)
+            .map_or_else(|| "-".to_string(), |at| at.get(..10).unwrap_or(at).to_string());
+
+        println!(
+            "{:<18} {:<8} {:>8} {:>7} {:>7} {:>9}",
+            name,
+            if enabled { "yes" } else { "no" },
+            low,
+            every,
+            since,
+            readings.get(&name).copied().unwrap_or(0)
+        );
+    }
+
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let args: Vec<String> = env::args().collect();
@@ -170,6 +233,11 @@ async fn main() -> Result<()> {
                 .context("usage: meterix-cli set-key <provider> <key>")?;
 
             set_key(provider, key).await
+        }
+        "providers" => {
+            let connection = open_database()?;
+
+            show_providers(&connection)
         }
         "export" => {
             let only = args.get(2).map(String::as_str);

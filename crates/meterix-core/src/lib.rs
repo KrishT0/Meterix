@@ -26,6 +26,15 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 pub const KEYRING_SERVICE: &str = "meterix-core";
+
+/// The provider kinds this build can talk to: the *adapters*, not the set being
+/// tracked.
+///
+/// Each entry names a hand-written adapter, because reading a provider's balance
+/// is code — OpenRouter's is a three-way choice between account credits, a key cap
+/// and spend, which no configuration describes. What is data is which of these the
+/// app actually tracks, which lives in the `providers` table. Adding a kind is a
+/// code change; turning one on or off is not.
 pub const PROVIDERS: [&str; 2] = ["openrouter", "cheaperinference"];
 
 /// The folder the app uses unless it has been moved: `~/.meterix`.
@@ -623,7 +632,7 @@ fn provider_with_key(name: &str, client: &Client, key: String) -> Option<Box<dyn
 /// Called before replacing a stored key, so a typo cannot destroy a working
 /// one. Nothing here touches the keychain.
 pub async fn verify_key(provider: &str, key: &str) -> Result<Balance, ProviderError> {
-    // ponytail: panics on a broken TLS setup, matching fetch_balances.
+    // ponytail: panics on a broken TLS setup, matching fetch_selected.
     let client = Client::new();
     let candidate = provider_with_key(provider, &client, key.to_string())
         .ok_or_else(|| unknown_provider(provider))?;
@@ -763,10 +772,6 @@ pub type Outcome = (&'static str, Result<Balance, ProviderError>);
 ///
 /// The outer `Result` is only for a bad argument. Per-provider failures come
 /// back inside the vector so callers decide what to do about them.
-pub async fn fetch_balances(only: Option<&str>) -> Result<Vec<Outcome>> {
-    fetch_selected(&requested_providers(only)?).await
-}
-
 /// The providers a request covers: the one named, or every provider.
 ///
 /// An unknown name is an error rather than an empty fetch, so a typo cannot look
@@ -786,9 +791,10 @@ pub fn requested_providers(only: Option<&str>) -> Result<Vec<&'static str>> {
 
 /// Fetch an explicit set of providers, in the order given.
 ///
-/// `fetch_balances` is this with the set worked out from the command line; the
-/// poller is this with the set decided by which intervals have elapsed. Both end
-/// up here so the ordering and the fingerprint handling cannot drift apart.
+/// Every caller ends up here — the command line, the window's Refresh and the
+/// poller — so the ordering and the fingerprint handling cannot drift apart. What
+/// differs is only how each one works out its set: named explicitly, everything
+/// tracked, or whatever is due.
 pub async fn fetch_selected(names: &[&'static str]) -> Result<Vec<Outcome>> {
     // ponytail: panics on a broken TLS setup rather than returning an error;
     // switch to Client::builder().build()? if that ever matters.
@@ -1055,7 +1061,7 @@ pub fn relocate_data_directory(directory: &Path) -> Result<PathBuf> {
 /// without raising the version never runs, which is the one failure this
 /// arrangement can produce — `every_step_of_the_ladder_is_reachable` is there to
 /// catch it.
-const SCHEMA_VERSION: i32 = 5;
+const SCHEMA_VERSION: i32 = 6;
 
 fn schema_version(connection: &Connection) -> Result<i32> {
     Ok(connection.query_row("PRAGMA user_version", [], |row| row.get(0))?)
@@ -1078,7 +1084,8 @@ fn set_schema_version(connection: &Connection, version: i32) -> Result<()> {
 fn adopt_version(connection: &Connection) -> Result<i32> {
     // The last thing each version added, newest first, so the newest marker found
     // is the version the database is at.
-    const MARKERS: [(i32, &str, &str); 5] = [
+    const MARKERS: [(i32, &str, &str); 6] = [
+        (6, "providers", "enabled"),
         (5, "providers", "last_attempt_at"),
         (4, "balance_snapshots", "provider_threshold_usd"),
         (3, "providers", "notified_error_kind"),
@@ -1184,6 +1191,18 @@ fn migrate(connection: &Connection, from: i32) -> Result<()> {
         // check moved it.
         add_column(connection, "providers", "poll_interval_minutes", "INTEGER")?;
         add_column(connection, "providers", "last_attempt_at", "TEXT")?;
+    }
+
+    if from < 6 {
+        // Whether the app tracks this provider at all. Rows that already exist
+        // default to tracked, because they were being polled until now and
+        // upgrading must not silently stop watching a balance.
+        add_column(
+            connection,
+            "providers",
+            "enabled",
+            "INTEGER NOT NULL DEFAULT 1",
+        )?;
     }
 
     Ok(())
@@ -1608,6 +1627,91 @@ pub fn save_settings(connection: &Connection, settings: &Settings) -> Result<()>
     Ok(())
 }
 
+/// The providers the app is tracking, in the order they were added.
+///
+/// This is what the poller fetches, what the dashboard shows and what the tray
+/// reports on. A provider that is switched off keeps its row, its key and its
+/// readings; it is simply not polled and not shown.
+pub fn tracked_providers(connection: &Connection) -> Result<Vec<String>> {
+    let mut statement =
+        connection.prepare("SELECT name FROM providers WHERE enabled = 1 ORDER BY id")?;
+
+    let rows = statement.query_map([], |row| row.get(0))?;
+
+    rows.collect::<rusqlite::Result<Vec<_>>>()
+        .context("could not read the tracked providers")
+}
+
+/// How many readings are stored for each provider.
+///
+/// Shown in the CLI's provider list, where it is the evidence for the promise that
+/// switching a provider off keeps its history.
+pub fn reading_counts(connection: &Connection) -> Result<Vec<(String, i64)>> {
+    let mut statement = connection.prepare(
+        "SELECT providers.name, count(balance_snapshots.id)
+         FROM providers
+         LEFT JOIN balance_snapshots ON balance_snapshots.provider_id = providers.id
+         GROUP BY providers.id
+         ORDER BY providers.id",
+    )?;
+
+    let rows = statement.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?;
+
+    rows.collect::<rusqlite::Result<Vec<_>>>()
+        .context("could not count the readings")
+}
+
+/// Whether each provider is tracked, for the screen that offers the switch.
+///
+/// Every row, unlike `tracked_providers`: the settings table has to be able to
+/// show a provider that is switched off, or there would be no way to switch it
+/// back on.
+pub fn provider_enabled(connection: &Connection) -> Result<Vec<(String, bool)>> {
+    let mut statement =
+        connection.prepare("SELECT name, enabled FROM providers ORDER BY id")?;
+
+    let rows = statement.query_map([], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)? != 0))
+    })?;
+
+    rows.collect::<rusqlite::Result<Vec<_>>>()
+        .context("could not read which providers are tracked")
+}
+
+/// The tracked providers as the registry's own ids, in the order they were added.
+///
+/// `tracked_providers` returns names from rows, which is what a screen wants. This
+/// is for the paths that have to hand a set to `fetch_selected`, whose providers
+/// are `&'static str` because an adapter is compiled in — the names come from the
+/// database, but only ones the registry knows can be asked for anything.
+pub fn tracked_kinds(connection: &Connection) -> Result<Vec<&'static str>> {
+    let tracked: HashSet<String> = tracked_providers(connection)?.into_iter().collect();
+
+    Ok(PROVIDERS
+        .iter()
+        .copied()
+        .filter(|name| tracked.contains(*name))
+        .collect())
+}
+
+/// Switch a provider on or off without deleting its key or its history.
+///
+/// The reason this exists rather than "remove": a provider someone has stopped
+/// using is one they may want back, and readings cannot be fetched again once
+/// they are gone.
+pub fn set_provider_enabled(connection: &Connection, provider: &str, enabled: bool) -> Result<()> {
+    let changed = connection.execute(
+        "UPDATE providers SET enabled = ?1 WHERE name = ?2",
+        params![i64::from(enabled), provider],
+    )?;
+
+    if changed == 0 {
+        return Err(anyhow!("no provider named {provider}"));
+    }
+
+    Ok(())
+}
+
 /// Each provider's own threshold, `None` where it has not been overridden.
 pub fn provider_thresholds(connection: &Connection) -> Result<Vec<(String, Option<f64>)>> {
     let mut statement =
@@ -1697,9 +1801,10 @@ pub fn due_providers(connection: &Connection) -> Result<Vec<&'static str>> {
 
     let mut statement = connection.prepare(
         "SELECT name FROM providers
-         WHERE last_attempt_at IS NULL
+         WHERE enabled = 1
+           AND (last_attempt_at IS NULL
             OR strftime('%s', 'now') - strftime('%s', last_attempt_at)
-               >= COALESCE(poll_interval_minutes, ?1) * 60
+               >= COALESCE(poll_interval_minutes, ?1) * 60)
          ORDER BY id",
     )?;
 
@@ -1717,7 +1822,6 @@ pub fn due_providers(connection: &Connection) -> Result<Vec<&'static str>> {
         .filter(|name| named.contains(*name))
         .collect())
 }
-
 /// Record that these providers were just asked.
 ///
 /// Written before the fetch, not after it, so a provider that fails backs off for
@@ -1824,12 +1928,18 @@ fn threshold_rows(connection: &Connection) -> Result<Vec<ThresholdRow>> {
         .collect())
 }
 
-/// Every provider's effective threshold, already resolved against the default.
+/// Every tracked provider's effective threshold, already resolved against the
+/// default. A provider that is switched off is left out, so the tray and the
+/// notifier cannot report on something the app is not watching.
 pub fn resolved_thresholds(connection: &Connection) -> Result<Vec<(String, f64)>> {
     let settings = load_settings(connection)?;
+    // Read once rather than asking per row: this is a handful either way, but the
+    // shape keeps it one query as providers are added.
+    let tracked: HashSet<String> = tracked_providers(connection)?.into_iter().collect();
 
     Ok(threshold_rows(connection)?
         .into_iter()
+        .filter(|(name, _, _)| tracked.contains(name))
         .map(|(name, own, reported)| (name, effective_threshold(&settings, own, reported)))
         .collect())
 }
@@ -2500,6 +2610,7 @@ mod tests {
             ("providers", "notified_error_kind"),
             ("providers", "poll_interval_minutes"),
             ("providers", "last_attempt_at"),
+            ("providers", "enabled"),
         ] {
             assert!(
                 column_exists(&connection, table, column).expect("checked"),
@@ -3103,6 +3214,95 @@ provider_threshold_usd,key_fingerprint"
         );
 
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Switching a provider off has to stop it being watched without losing
+    /// anything: the key stays, the readings stay, and it comes back whole.
+    #[test]
+    fn a_provider_that_is_switched_off_stops_being_watched() {
+        let connection = memory_database();
+
+        assert_eq!(
+            tracked_providers(&connection).expect("tracked"),
+            vec!["openrouter", "cheaperinference"]
+        );
+        assert_eq!(due_providers(&connection).expect("due").len(), 2);
+        assert_eq!(resolved_thresholds(&connection).expect("resolved").len(), 2);
+
+        // A reading, so there is history to keep.
+        connection
+            .execute(
+                "INSERT INTO balance_snapshots (provider_id, remaining, basis, recorded_at)
+                 SELECT id, 12.0, 'account_credits', '2026-09-20 06:00:00' FROM providers
+                 WHERE name = 'openrouter'",
+                [],
+            )
+            .expect("stored");
+
+        set_provider_enabled(&connection, "openrouter", false).expect("switched off");
+
+        // Not tracked, not fetched, not reported on. Silence is the whole point:
+        // a tray that still colours itself for a provider nobody is watching is a
+        // lie about what the app knows.
+        assert_eq!(
+            tracked_providers(&connection).expect("tracked"),
+            vec!["cheaperinference"]
+        );
+        assert_eq!(due_providers(&connection).expect("due"), vec!["cheaperinference"]);
+        // What an unqualified refresh fetches: asking for everything means
+        // everything being watched, not every adapter this build has.
+        assert_eq!(
+            tracked_kinds(&connection).expect("kinds"),
+            vec!["cheaperinference"]
+        );
+        assert_eq!(
+            resolved_thresholds(&connection)
+                .expect("resolved")
+                .into_iter()
+                .map(|(name, _)| name)
+                .collect::<Vec<_>>(),
+            vec!["cheaperinference"]
+        );
+
+        // The row, the history and the earliest reading are all still there.
+        assert_eq!(history(&connection, "openrouter", 10).expect("history").len(), 1);
+        let starts = first_reading_at(&connection).expect("starts");
+        assert_eq!(
+            starts
+                .iter()
+                .find(|(name, _)| name == "openrouter")
+                .cloned(),
+            Some((
+                "openrouter".to_string(),
+                Some("2026-09-20 06:00:00".to_string())
+            ))
+        );
+
+        // And switching back on restores it exactly.
+        set_provider_enabled(&connection, "openrouter", true).expect("switched on");
+        assert_eq!(tracked_providers(&connection).expect("tracked").len(), 2);
+        assert_eq!(resolved_thresholds(&connection).expect("resolved").len(), 2);
+
+        assert!(set_provider_enabled(&connection, "nowhere", false).is_err());
+    }
+
+    /// Every provider a previous build wrote was being polled, so upgrading must
+    /// not silently stop watching any of them.
+    #[test]
+    fn a_provider_from_before_the_column_existed_stays_tracked() {
+        let connection = memory_database();
+
+        // The default is what an upgraded row gets: the column is added with one.
+        let enabled: i64 = connection
+            .query_row(
+                "SELECT enabled FROM providers WHERE name = 'openrouter'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("enabled");
+
+        assert_eq!(enabled, 1);
+        assert!(tracked_providers(&connection).expect("tracked").len() == 2);
     }
 
     #[test]
