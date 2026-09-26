@@ -693,12 +693,122 @@ fn spec(provider: &str) -> Option<ProviderSpec> {
     }
 }
 
+/// The gateway shapes this build can read.
+///
+/// A row whose `shape` is one of these is read against its own `base_url` by a
+/// generic adapter. A row with no shape is read by the compiled adapter its name
+/// selects, so the four providers that already exist are untouched. Adding a
+/// shape is a code change; adding a provider that speaks one is not.
+pub const GATEWAY_SHAPES: [&str; 1] = ["openrouter_compatible"];
+
+/// How a provider row says it should be read, when it is not a compiled adapter.
+#[derive(Debug, Clone)]
+pub struct Gateway {
+    pub shape: String,
+    pub base_url: String,
+}
+
+/// How this provider is reached, or `None` if a compiled adapter reads it.
+pub fn gateway_for(connection: &Connection, provider: &str) -> Result<Option<Gateway>> {
+    connection
+        .query_row(
+            "SELECT shape, base_url FROM providers WHERE name = ?1 AND shape IS NOT NULL",
+            params![provider],
+            |row| {
+                Ok(Gateway {
+                    shape: row.get(0)?,
+                    base_url: row.get(1)?,
+                })
+            },
+        )
+        .optional()
+        .context("could not read how a provider is reached")
+}
+
+/// Add a provider reached through a gateway rather than a compiled adapter.
+///
+/// Refuses the four things it cannot read: a name a compiled adapter already
+/// owns, a shape this build does not have, a base url that is not a url, and a
+/// name already configured. Each would otherwise leave a row that looks
+/// configured and is not, which is worse than a refusal.
+pub fn add_gateway(
+    connection: &Connection,
+    name: &str,
+    shape: &str,
+    base_url: &str,
+    display_name: Option<&str>,
+) -> Result<()> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err(anyhow!("a provider needs a name"));
+    }
+
+    if spec(name).is_some() {
+        return Err(anyhow!(
+            "{name} is a compiled adapter, so it cannot also be a gateway row"
+        ));
+    }
+
+    if !GATEWAY_SHAPES.contains(&shape) {
+        return Err(anyhow!(
+            "unknown shape: {shape}; use {}",
+            GATEWAY_SHAPES.join(", ")
+        ));
+    }
+
+    // A trailing slash is stripped rather than refused: it is the kind of thing a
+    // person types, and the endpoint paths are appended to this.
+    let base_url = base_url.trim().trim_end_matches('/');
+    if !base_url.starts_with("https://") && !base_url.starts_with("http://") {
+        return Err(anyhow!(
+            "the base url must start with https://, or http:// for a gateway on this machine"
+        ));
+    }
+
+    let exists: bool = connection.query_row(
+        "SELECT EXISTS(SELECT 1 FROM providers WHERE name = ?1)",
+        params![name],
+        |row| row.get(0),
+    )?;
+    if exists {
+        return Err(anyhow!("{name} is already configured"));
+    }
+
+    connection.execute(
+        "INSERT INTO providers (name, shape, base_url, display_name) VALUES (?1, ?2, ?3, ?4)",
+        params![name, shape, base_url, display_name],
+    )?;
+
+    Ok(())
+}
+
 /// The environment variable a provider's key can be supplied through.
 ///
-/// A keychain entry wins over this, so a value here is a fallback rather than
-/// an override.
-fn env_var(provider: &str) -> Option<&'static str> {
-    spec(provider).map(|spec| spec.env_var)
+/// A compiled adapter declares its own. A provider that is a row has nothing to
+/// declare, so its name is used: `orcarouter` becomes `ORCAROUTER_KEY`. A
+/// keychain entry always wins, so a wrong guess here costs nothing, and the paths
+/// that accept a name from a person check it against the rows first.
+fn env_var(provider: &str) -> Option<String> {
+    if let Some(spec) = spec(provider) {
+        return Some(spec.env_var.to_string());
+    }
+
+    let stem: String = provider
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() {
+                character.to_ascii_uppercase()
+            } else {
+                '_'
+            }
+        })
+        .collect();
+
+    if stem.is_empty() {
+        return None;
+    }
+
+    Some(format!("{stem}_KEY"))
 }
 
 /// The provider's name as it should appear to a person.
@@ -735,7 +845,7 @@ pub fn key_fingerprint(key: &str) -> String {
 }
 
 pub fn credential_hint(provider: &str) -> Option<String> {
-    let key = credential(provider, env_var(provider)?).ok()?;
+    let key = credential(provider, &env_var(provider)?).ok()?;
     Some(mask_key(&key))
 }
 
@@ -744,7 +854,7 @@ pub fn credential_hint(provider: &str) -> Option<String> {
 /// `None` when no key is stored, which is not the same as an empty fingerprint:
 /// nothing is configured, so no reading can belong to it.
 pub fn provider_fingerprint(provider: &str) -> Option<String> {
-    let key = credential(provider, env_var(provider)?).ok()?;
+    let key = credential(provider, &env_var(provider)?).ok()?;
     Some(key_fingerprint(&key))
 }
 
@@ -798,7 +908,11 @@ fn unknown_provider(name: &str) -> ProviderError {
 
 /// Build a provider that reads its key from the given source, rather than from
 /// whatever is stored.
-fn provider_with_key(name: &str, client: &Client, key: String) -> Option<Box<dyn Provider>> {
+fn provider_with_key_compiled(
+    name: &str,
+    client: &Client,
+    key: String,
+) -> Option<Box<dyn Provider>> {
     match name {
         "openrouter" => Some(Box::new(OpenRouterCompatible {
             client: client.clone(),
@@ -829,8 +943,7 @@ fn provider_with_key(name: &str, client: &Client, key: String) -> Option<Box<dyn
 pub async fn verify_key(provider: &str, key: &str) -> Result<Balance, ProviderError> {
     // ponytail: panics on a broken TLS setup, matching fetch_selected.
     let client = Client::new();
-    let candidate = provider_with_key(provider, &client, key.to_string())
-        .ok_or_else(|| unknown_provider(provider))?;
+    let candidate = adapter_for(provider, &client, key.to_string())?;
 
     candidate.fetch_balance().await
 }
@@ -940,23 +1053,70 @@ fn credential(provider: &str, env_name: &str) -> Result<String, ProviderError> {
 ///
 /// The environment is read on its own, so this only means anything once the
 /// keychain entry is gone: it answers "would a fetch find a key now".
-fn env_credential(provider: &str) -> Option<&'static str> {
+fn env_credential(provider: &str) -> Option<String> {
     let name = env_var(provider)?;
-    env::var(name).ok().map(|_| name)
+    env::var(&name).ok().map(|_| name)
+}
+
+/// The adapter for a provider: a compiled kind, or the shape a row names.
+///
+/// Reads the database itself, because with providers as rows the build is no
+/// longer the authority on which names exist. The connection is opened and dropped
+/// inside this synchronous function, so it never crosses an await and the futures
+/// around it stay `Send`.
+fn adapter_for(
+    name: &str,
+    client: &Client,
+    key: String,
+) -> Result<Box<dyn Provider>, ProviderError> {
+    if spec(name).is_some() {
+        return provider_with_key_compiled(name, client, key)
+            .ok_or_else(|| unknown_provider(name));
+    }
+
+    let connection =
+        open_database().map_err(|error| ProviderError::Unreachable(error.to_string()))?;
+
+    let Some(gateway) = gateway_for(&connection, name)
+        .map_err(|error| ProviderError::Unreachable(error.to_string()))?
+    else {
+        return Err(unknown_provider(name));
+    };
+
+    match gateway.shape.as_str() {
+        // The same adapter the compiled kind uses, pointed somewhere else.
+        "openrouter_compatible" => Ok(Box::new(OpenRouterCompatible {
+            client: client.clone(),
+            key,
+            provider: name.to_string(),
+            base_url: gateway.base_url,
+        })),
+        other => Err(ProviderError::BadResponse(format!(
+            "{name} is a gateway using the {other} shape, and this build cannot read that yet"
+        ))),
+    }
+}
+
+/// The key a provider is configured with: the keychain first, the environment
+/// second. Both are checked for a provider that is a row, because a row has a
+/// derived variable name even though nothing declared it.
+fn configured_key(name: &str) -> Result<String, ProviderError> {
+    match env_var(name) {
+        Some(env_name) => credential(name, &env_name),
+        None => Err(ProviderError::MissingCredential(name.to_string())),
+    }
 }
 
 fn build_provider(
     name: &str,
     client: &Client,
 ) -> Result<(Box<dyn Provider>, String), ProviderError> {
-    let env_name = env_var(name).ok_or_else(|| unknown_provider(name))?;
-    let key = credential(name, env_name)?;
-    // Fingerprinted here, where the key is in hand and before it is dropped.
+    let key = configured_key(name)?;
+    // Fingerprinted here, where the key is in hand and before it is moved.
     let fingerprint = key_fingerprint(&key);
+    let provider = adapter_for(name, client, key)?;
 
-    provider_with_key(name, client, key)
-        .map(|provider| (provider, fingerprint))
-        .ok_or_else(|| unknown_provider(name))
+    Ok((provider, fingerprint))
 }
 
 /// One provider's result. `Err` is per-provider, so one failure does not hide
@@ -1260,7 +1420,7 @@ pub fn relocate_data_directory(directory: &Path) -> Result<PathBuf> {
 /// without raising the version never runs, which is the one failure this
 /// arrangement can produce — `every_step_of_the_ladder_is_reachable` is there to
 /// catch it.
-const SCHEMA_VERSION: i32 = 6;
+const SCHEMA_VERSION: i32 = 7;
 
 fn schema_version(connection: &Connection) -> Result<i32> {
     Ok(connection.query_row("PRAGMA user_version", [], |row| row.get(0))?)
@@ -1283,7 +1443,8 @@ fn set_schema_version(connection: &Connection, version: i32) -> Result<()> {
 fn adopt_version(connection: &Connection) -> Result<i32> {
     // The last thing each version added, newest first, so the newest marker found
     // is the version the database is at.
-    const MARKERS: [(i32, &str, &str); 6] = [
+    const MARKERS: [(i32, &str, &str); 7] = [
+        (7, "providers", "display_name"),
         (6, "providers", "enabled"),
         (5, "providers", "last_attempt_at"),
         (4, "balance_snapshots", "provider_threshold_usd"),
@@ -1402,6 +1563,17 @@ fn migrate(connection: &Connection, from: i32) -> Result<()> {
             "enabled",
             "INTEGER NOT NULL DEFAULT 1",
         )?;
+    }
+
+    if from < 7 {
+        // How to read a provider whose adapter is not compiled in. Null, which is
+        // every row that already exists, means the row's name selects a compiled
+        // adapter, so nothing about the current providers changes.
+        add_column(connection, "providers", "shape", "TEXT")?;
+        // Where such a provider lives. Meaningless without a shape.
+        add_column(connection, "providers", "base_url", "TEXT")?;
+        // What to call it. Null falls back to the row's name.
+        add_column(connection, "providers", "display_name", "TEXT")?;
     }
 
     Ok(())
@@ -1658,10 +1830,13 @@ pub fn save_key(provider: &str, key: &str) -> Result<()> {
 /// keychain entry is ours to delete; a variable in the caller's environment is
 /// not, so removing the entry cannot on its own leave a provider unconfigured.
 /// Returning it is what stops a removal from looking like it silently failed.
-pub fn forget_key(provider: &str) -> Result<Option<&'static str>> {
-    if !PROVIDERS.contains(&provider) {
+/// Takes the connection because the rows, not the build, decide which names are
+/// providers: a gateway that somebody added is a provider too, and its key is
+/// just as removable as a compiled one's.
+pub fn forget_key(connection: &Connection, provider: &str) -> Result<Option<String>> {
+    if spec(provider).is_none() && gateway_for(connection, provider)?.is_none() {
         return Err(anyhow!(
-            "unknown provider: {provider}; use {}",
+            "unknown provider: {provider}; use {} for the built-in ones",
             PROVIDERS.join(", ")
         ));
     }
@@ -3646,7 +3821,7 @@ provider_threshold_usd,key_fingerprint"
         // be reading it concurrently, which is precisely why the core reads the
         // key once and keeps it rather than looking it up per request.
         unsafe { std::env::set_var("OPENROUTER_KEY", "sk-or-v1-not-a-real-key") };
-        assert_eq!(env_credential("openrouter"), Some("OPENROUTER_KEY"));
+        assert_eq!(env_credential("openrouter"), Some("OPENROUTER_KEY".to_string()));
         unsafe { std::env::remove_var("OPENROUTER_KEY") };
 
         assert_eq!(env_credential("openrouter"), None);
@@ -3656,7 +3831,78 @@ provider_threshold_usd,key_fingerprint"
     /// command line cannot reach the credential store at all.
     #[test]
     fn forgetting_an_unknown_provider_touches_no_credential() {
-        assert!(forget_key("not-a-provider").is_err());
+        let connection = memory_database();
+
+        assert!(forget_key(&connection, "not-a-provider").is_err());
+    }
+
+    /// A provider added as a row is a provider like any other: it can be given a
+    /// key, read, switched off, and have its key removed. Before this, only a name
+    /// the build already knew could do any of that.
+    #[test]
+    fn a_gateway_row_is_a_provider_like_any_other() {
+        let connection = memory_database();
+
+        add_gateway(
+            &connection,
+            "orcarouter",
+            "openrouter_compatible",
+            "https://api.orcarouter.ai/",
+            Some("OrcaRouter"),
+        )
+        .expect("added");
+
+        // The trailing slash was stripped, because the paths are appended to it.
+        let gateway = gateway_for(&connection, "orcarouter")
+            .expect("read")
+            .expect("a gateway");
+        assert_eq!(gateway.shape, "openrouter_compatible");
+        assert_eq!(gateway.base_url, "https://api.orcarouter.ai");
+
+        // Tracked like anything else, and removable like anything else.
+        assert!(tracked_providers(&connection)
+            .expect("tracked")
+            .iter()
+            .any(|name| name == "orcarouter"));
+        assert!(forget_key(&connection, "orcarouter").is_ok());
+
+        // A compiled kind has no shape, so it is still read by its adapter.
+        assert!(gateway_for(&connection, "openrouter").expect("read").is_none());
+    }
+
+    /// Each refusal guards a row that would look configured and not be.
+    #[test]
+    fn a_gateway_that_could_not_be_read_is_refused() {
+        let connection = memory_database();
+
+        let refused = |name: &str, shape: &str, url: &str| {
+            add_gateway(&connection, name, shape, url, None)
+                .expect_err("refused")
+                .to_string()
+        };
+
+        // A name a compiled adapter owns: the adapter would win and the shape
+        // would be a row nobody reads.
+        assert!(refused("openrouter", "openrouter_compatible", "https://x.test").contains("compiled adapter"));
+        // A shape this build does not have.
+        assert!(refused("somewhere", "openai_dashboard", "https://x.test").contains("unknown shape"));
+        // Not a url.
+        assert!(refused("somewhere", "openrouter_compatible", "api.example.com").contains("base url"));
+        // And a name already taken.
+        add_gateway(&connection, "taken", "openrouter_compatible", "https://x.test", None)
+            .expect("first");
+        assert!(refused("taken", "openrouter_compatible", "https://y.test").contains("already configured"));
+    }
+
+    /// A row's name derives its environment variable, so a gateway can be
+    /// configured from the environment the same way a compiled adapter can.
+    #[test]
+    fn a_gateway_row_derives_its_environment_variable() {
+        assert_eq!(env_var("openrouter"), Some("OPENROUTER_KEY".to_string()));
+        assert_eq!(env_var("orcarouter"), Some("ORCAROUTER_KEY".to_string()));
+        // Punctuation becomes underscores rather than producing an invalid name.
+        assert_eq!(env_var("my-gateway.io"), Some("MY_GATEWAY_IO_KEY".to_string()));
+        assert_eq!(env_var(""), None);
     }
 
     /// When a provider's history starts comes from its earliest reading, so it

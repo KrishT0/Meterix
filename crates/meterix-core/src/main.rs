@@ -11,10 +11,10 @@ use anyhow::{Context, Result, anyhow};
 use std::collections::HashMap;
 
 use meterix_core::{
-    Balance, Connection, PROVIDERS, SaveOutcome, adopt_legacy_database, display_name,
-    fetch_selected, first_reading_at, forget_key, history, history_csv, open_database,
-    provider_enabled, reading_counts, requested_providers, resolved_intervals,
-    resolved_thresholds, save_snapshot, save_verified_key, tracked_providers,
+    Balance, Connection, GATEWAY_SHAPES, PROVIDERS, SaveOutcome, add_gateway, adopt_legacy_database,
+    display_name, fetch_selected, first_reading_at, forget_key, gateway_for, history, history_csv, open_database,
+    provider_enabled, reading_counts, requested_providers, resolved_intervals, resolved_thresholds,
+    save_snapshot, save_verified_key, tracked_providers,
 };
 
 const DEFAULT_HISTORY_LIMIT: usize = 20;
@@ -27,6 +27,8 @@ usage
   meterix-cli history <provider> [n]    the last n readings, 20 by default
   meterix-cli export [provider]         every reading as CSV, on standard output
   meterix-cli providers                 what is tracked, and what is stored
+  meterix-cli add-gateway <name> --shape <shape> --base-url <url>
+                                        track a provider reached through a gateway
   meterix-cli set-key <provider> <key>  verify a key, then store it
   meterix-cli forget-key <provider>     remove the stored key
   meterix-cli help                      show this
@@ -149,6 +151,13 @@ fn show_history(provider: &str, limit: usize) -> Result<()> {
     Ok(())
 }
 
+/// The value after a `--flag`, which is all the argument parsing this needs.
+fn flag(args: &[String], name: &str) -> Option<String> {
+    let position = args.iter().position(|argument| argument == name)?;
+
+    args.get(position + 1).cloned()
+}
+
 fn window(days: Option<u32>) -> String {
     days.map_or_else(|| "all".to_string(), |days| format!("{days}d"))
 }
@@ -234,6 +243,40 @@ async fn main() -> Result<()> {
 
             set_key(provider, key).await
         }
+        "add-gateway" => {
+            let name = args.get(2).context(
+                "usage: meterix-cli add-gateway <name> --shape <shape> --base-url <url> \
+                 [--display-name <label>]",
+            )?;
+            let shape = flag(&args, "--shape").with_context(|| {
+                format!("--shape is required; this build has {}", GATEWAY_SHAPES.join(", "))
+            })?;
+            let base_url = flag(&args, "--base-url").context("--base-url is required")?;
+            let display_name = flag(&args, "--display-name");
+
+            let connection = open_database()?;
+
+            add_gateway(
+                &connection,
+                name,
+                &shape,
+                &base_url,
+                display_name.as_deref(),
+            )?;
+
+            // Read back rather than echoing the argument: the base url is
+            // normalised on the way in, so quoting the input would claim a trailing
+            // slash the row does not have.
+            match gateway_for(&connection, name)? {
+                Some(gateway) => {
+                    println!("{name} added: {} shape at {}", gateway.shape, gateway.base_url)
+                }
+                None => println!("{name} added"),
+            }
+            println!("give it a key with: meterix-cli set-key {name} <key>");
+
+            Ok(())
+        }
         "providers" => {
             let connection = open_database()?;
 
@@ -261,8 +304,9 @@ async fn main() -> Result<()> {
             let provider = args
                 .get(2)
                 .context("usage: meterix-cli forget-key <provider>")?;
+            let connection = open_database()?;
 
-            match forget_key(provider)? {
+            match forget_key(&connection, provider)? {
                 Some(env_name) => println!(
                     "key removed from the OS keychain, but {env_name} is set and still supplies \
                      one, so {} stays configured. Unset it to finish the job: the app cannot \

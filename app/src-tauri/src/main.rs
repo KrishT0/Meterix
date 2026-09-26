@@ -395,8 +395,10 @@ async fn set_key(provider: String, key: String) -> Result<SaveKeyOutcome, String
 /// Returns the environment variable still supplying a key, if one is, so the
 /// window can say why a provider it just removed is still on the list.
 #[tauri::command]
-fn remove_provider(provider: String) -> Result<Option<&'static str>, String> {
-    forget_key(&provider).map_err(|error| error.to_string())
+fn remove_provider(provider: String) -> Result<Option<String>, String> {
+    let connection = open_database().map_err(|error| error.to_string())?;
+
+    forget_key(&connection, &provider).map_err(|error| error.to_string())
 }
 
 // ---------------------------------------------------------------------------
