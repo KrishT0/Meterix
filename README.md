@@ -18,6 +18,9 @@ popover on the tray icon when you only want a glance.
   takes it off the dashboard, and keeps both its key and every reading it has
   collected, so a provider you stop using for a while comes back whole.
 - Shows each provider's remaining balance, where the number came from, and when it was read.
+- Keeps a non-money figure apart from the money ones. ElevenLabs reports characters
+  left rather than dollars, so it is shown with its own unit and left out of the
+  total and the chart, the same way a spend figure is.
 - Charts balance over time, using only readings from the credential you have now. Swap in a different account and the old readings are not drawn as one continuous line.
 - Keeps a per-provider low threshold. Leave one blank and the provider's own
   published threshold applies — CheaperInference reports the balance it
@@ -129,7 +132,8 @@ meterix-cli set-key <provider> <key>       store a key in the OS keychain
 meterix-cli forget-key <provider>          remove a stored key
 ```
 
-Providers are `openrouter` and `cheaperinference`. `limit` defaults to 20, which
+Providers are `openrouter`, `cheaperinference`, `deepseek` and `elevenlabs`. `limit`
+defaults to 20, which
 is about ten hours at the default poll rate.
 
 ## What it costs to run
@@ -154,12 +158,18 @@ Edge runtime rather than anything this project builds.
 
 Worth knowing before you rely on it.
 
-- **Two providers, and adding a third is a code change.** Which providers are
+- **Four providers, and adding another is a code change.** Which providers are
   tracked is data — each one is a row you can switch off and back on — but the
   adapter that knows how to read a given provider's balance is hand-written Rust,
   and no configuration describes OpenRouter's three-way choice between account
   credits, a key cap and spend. So a new *kind* of provider means new code; using
   or not using one you have is a switch.
+- **Most providers do not publish a balance.** DeepSeek does, in money. ElevenLabs
+  publishes a character allowance instead, which is shown in its own unit and left
+  out of the total because it is not dollars. OpenAI and Anthropic publish spend
+  rather than a balance, and only through an *admin* key, so they are not included;
+  Groq publishes nothing at all, and AWS Bedrock has no balance endpoint and
+  authenticates by request signature rather than a key.
 - **No installer has been built.** The bundler fetches NSIS on first run, and that download has not completed in the environment this was developed in. The config is ready; nothing has been produced from it.
 - **A removed key can come back.** Removing a provider deletes its keychain entry, but if the matching environment variable is set, the app keeps using it and the provider stays on the list. The app says which variable, since it cannot unset one for you.
 - **Dark only.** There is no light theme.

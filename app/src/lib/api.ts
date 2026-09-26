@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core'
 
 /** Where a stored number came from. Mirrors `meterix_core::Basis`. */
-export type Basis = 'account_credits' | 'key_cap' | 'usage'
+export type Basis = 'account_credits' | 'key_cap' | 'usage' | 'quota'
 
 /** Identifiers from `meterix_core::ProviderError::kind()`. */
 export type ErrorKind =

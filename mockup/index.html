@@ -572,6 +572,14 @@
   <td class="num">—</td>
   <td class="num">$5.00</td>
   <td><span class="tstat err">rejected</span></td>
+</tr>
+<tr>
+  <td><span class="sdot" style="background:#C79BE0"></span>ElevenLabs</td>
+  <td class="num">12,431 ch</td>
+  <td class="dim">allowance left, not money</td>
+  <td class="num">—</td>
+  <td class="num">—</td>
+  <td><span class="tstat ok">tracked</span></td>
 </tr></tbody>
           </table>
         </div>
@@ -703,6 +711,14 @@
               <span class="sright"><span class="dim">$</span><span class="sin">5.00</span></span>
               <span class="sw off" style="margin-left:auto"><i></i></span>
             </div>
+            <div class="srow">
+              <span class="sname"><span class="sdot" style="background:#C79BE0"></span>ElevenLabs</span>
+              <span class="dim num">sk_…9d41</span>
+              <span class="dim num" style="text-align:right">22 Sep</span>
+              <span class="sright"><span class="sin sin-muted">30</span><span class="dim">m</span></span>
+              <span class="sright"><span class="dim">$</span><span class="sin">5.00</span></span>
+              <span class="sw" style="margin-left:auto"><i></i></span>
+            </div>
           </div>
           <p class="why" style="margin-top:10px">
               Leave a provider blank to use its own default, and its placeholder shows what that is:
@@ -710,6 +726,9 @@
               publishes none. An empty <b>Every</b> follows the polling default above. <b>Since</b> is
               the earliest reading stored rather than when the key was added, so it works for a
               provider that was already configured — DeepInfra has no readings yet and shows a dash.
+              <b>ElevenLabs</b> reports a character allowance rather than money, so it is counted in
+              the table in its own unit and left out of the total and the chart: a character is not a
+              dollar, and a dollar threshold says nothing about it.
           </p>
         </div>
 

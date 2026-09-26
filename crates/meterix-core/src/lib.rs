@@ -35,7 +35,11 @@ pub const KEYRING_SERVICE: &str = "meterix-core";
 /// and spend, which no configuration describes. What is data is which of these the
 /// app actually tracks, which lives in the `providers` table. Adding a kind is a
 /// code change; turning one on or off is not.
-pub const PROVIDERS: [&str; 2] = ["openrouter", "cheaperinference"];
+///
+/// **The order matters.** `provider_for_key` takes the first entry whose prefix
+/// matches, and an OpenRouter key also starts with DeepSeek's `sk-`, so the looser
+/// prefix must not be checked first.
+pub const PROVIDERS: [&str; 4] = ["openrouter", "cheaperinference", "deepseek", "elevenlabs"];
 
 /// The folder the app uses unless it has been moved: `~/.meterix`.
 ///
@@ -69,6 +73,11 @@ pub enum Basis {
     KeyCap,
     /// Not a balance. Spend so far on this credential, which only grows.
     Usage,
+    /// A limited allowance that is not money at all: ElevenLabs counts
+    /// characters, not dollars. It sits apart from the other three because a
+    /// character cannot be added to a dollar total or drawn on a dollar axis, and
+    /// a dollar threshold says nothing about it.
+    Quota,
 }
 
 impl Basis {
@@ -77,6 +86,7 @@ impl Basis {
             Basis::AccountCredits => "account_credits",
             Basis::KeyCap => "key_cap",
             Basis::Usage => "usage",
+            Basis::Quota => "quota",
         }
     }
 
@@ -86,12 +96,17 @@ impl Basis {
             Basis::AccountCredits => "account balance",
             Basis::KeyCap => "key cap remaining",
             Basis::Usage => "spend so far, not a balance",
+            Basis::Quota => "allowance left, not money",
         }
     }
 
-    /// Whether `remaining` is money left rather than money already spent.
+    /// Whether `remaining` is money left rather than something else.
+    ///
+    /// A quota is not money, so it is excluded here for the same reason spend is:
+    /// this is the flag that decides what can be compared to a dollar threshold,
+    /// summed into a dollar total, or drawn on the dollar chart.
     pub fn is_balance(self) -> bool {
-        !matches!(self, Basis::Usage)
+        matches!(self, Basis::AccountCredits | Basis::KeyCap)
     }
 
     /// Unknown values read back as the least trustworthy basis rather than
@@ -100,6 +115,7 @@ impl Basis {
         match value {
             "account_credits" => Basis::AccountCredits,
             "key_cap" => Basis::KeyCap,
+            "quota" => Basis::Quota,
             _ => Basis::Usage,
         }
     }
@@ -279,9 +295,25 @@ async fn fetch_json<T: DeserializeOwned>(
     key: &str,
     url: &str,
 ) -> Result<T, ProviderError> {
-    let response = client
-        .get(url)
-        .bearer_auth(key)
+    fetch_json_as(client, key, None, url).await
+}
+
+/// `header` names a provider-specific header to carry the key instead of
+/// `Authorization: Bearer`. ElevenLabs wants `xi-api-key`, and sending a bearer
+/// header there fails in a way that reads as a rejected key rather than as the
+/// wrong header.
+async fn fetch_json_as<T: DeserializeOwned>(
+    client: &Client,
+    key: &str,
+    header: Option<&str>,
+    url: &str,
+) -> Result<T, ProviderError> {
+    let request = match header {
+        Some(name) => client.get(url).header(name, key),
+        None => client.get(url).bearer_auth(key),
+    };
+
+    let response = request
         .send()
         .await
         .map_err(|error| ProviderError::Unreachable(error.to_string()))?;
@@ -478,6 +510,145 @@ impl Provider for CheaperInference {
     }
 }
 
+/// DeepSeek publishes an actual prepaid balance, in the currency the account was
+/// funded in.
+struct DeepSeek {
+    client: Client,
+    key: String,
+}
+
+const DEEPSEEK_BALANCE_URL: &str = "https://api.deepseek.com/user/balance";
+
+#[derive(Debug, Deserialize)]
+struct DeepSeekResponse {
+    #[serde(default)]
+    balance_infos: Vec<DeepSeekBalance>,
+}
+
+#[derive(Debug, Deserialize)]
+struct DeepSeekBalance {
+    /// `USD` or `CNY`.
+    currency: String,
+    /// A string in the response despite reading as a number, so it is parsed
+    /// rather than deserialised as a float.
+    total_balance: String,
+}
+
+#[async_trait]
+impl Provider for DeepSeek {
+    fn name(&self) -> &'static str {
+        "deepseek"
+    }
+
+    async fn fetch_balance(&self) -> Result<Balance, ProviderError> {
+        let response =
+            fetch_json::<DeepSeekResponse>(&self.client, &self.key, DEEPSEEK_BALANCE_URL).await?;
+
+        // An account can be funded in more than one currency and every number the
+        // app shows is compared against a dollar threshold, so only the USD entry
+        // can be used. A CNY-only account is refused rather than relabelled: the
+        // alternative is a figure in yuan sitting under a dollar sign, which is
+        // worse than an error because it looks like an answer.
+        let remaining = deepseek_usd_balance(&response)?;
+
+        Ok(Balance {
+            provider: "deepseek",
+            basis: Basis::AccountCredits,
+            remaining,
+            account_credits: Some(remaining),
+            // DeepSeek reports a balance and nothing else.
+            usage: None,
+            spend_window_days: None,
+            provider_threshold: None,
+            // Filled in by the caller, which is where the key is known.
+            key_fingerprint: None,
+        })
+    }
+}
+
+/// The USD figure out of a DeepSeek balance response.
+///
+/// Split out from the request so the currency choice can be tested directly: it is
+/// the one judgement in the adapter, and getting it wrong puts a figure in yuan
+/// under a dollar sign, where it looks like an answer.
+fn deepseek_usd_balance(response: &DeepSeekResponse) -> Result<f64, ProviderError> {
+    let usd = response
+        .balance_infos
+        .iter()
+        .find(|info| info.currency.eq_ignore_ascii_case("USD"))
+        .ok_or_else(|| {
+            let found = response
+                .balance_infos
+                .first()
+                .map_or("no currency at all", |info| info.currency.as_str());
+
+            ProviderError::BadResponse(format!(
+                "this account reports a balance in {found}, and only USD can be compared against \
+                 a dollar threshold"
+            ))
+        })?;
+
+    usd.total_balance
+        .trim()
+        .parse::<f64>()
+        .map_err(|_| ProviderError::BadResponse(format!("unreadable balance: {}", usd.total_balance)))
+}
+
+/// ElevenLabs sells a monthly character allowance, so what it has to report is a
+/// quota rather than money.
+struct ElevenLabs {
+    client: Client,
+    key: String,
+}
+
+const ELEVENLABS_SUBSCRIPTION_URL: &str = "https://api.elevenlabs.io/v1/user/subscription";
+
+#[derive(Debug, Deserialize)]
+struct ElevenLabsSubscription {
+    /// Characters used in the current period.
+    character_count: f64,
+    /// Characters allowed in the current period.
+    character_limit: f64,
+}
+
+#[async_trait]
+impl Provider for ElevenLabs {
+    fn name(&self) -> &'static str {
+        "elevenlabs"
+    }
+
+    async fn fetch_balance(&self) -> Result<Balance, ProviderError> {
+        // `xi-api-key`, not a bearer token.
+        let subscription = fetch_json_as::<ElevenLabsSubscription>(
+            &self.client,
+            &self.key,
+            Some("xi-api-key"),
+            ELEVENLABS_SUBSCRIPTION_URL,
+        )
+        .await?;
+
+        // Deliberately not clamped at zero. Overage is allowed up to an extension
+        // a workspace admin sets, and a negative figure is the honest way to say
+        // "past the allowance" rather than "exactly out".
+        let remaining = subscription.character_limit - subscription.character_count;
+
+        Ok(Balance {
+            provider: "elevenlabs",
+            // The basis is what keeps a character count out of the dollar total and
+            // off the money chart.
+            basis: Basis::Quota,
+            remaining,
+            // Nothing here is money, so these stay empty rather than holding a
+            // character count in a column the rest of the app reads as dollars.
+            account_credits: None,
+            usage: None,
+            spend_window_days: None,
+            provider_threshold: None,
+            key_fingerprint: None,
+        })
+    }
+}
+
 /// Static facts about a supported provider, kept in one place so the pieces
 /// cannot drift apart.
 struct ProviderSpec {
@@ -503,6 +674,17 @@ fn spec(provider: &str) -> Option<ProviderSpec> {
             display_name: "CheaperInference",
             env_var: "CHEAPERINFERENCE_KEY",
             key_prefix: "ci_",
+        }),
+        "deepseek" => Some(ProviderSpec {
+            display_name: "DeepSeek",
+            env_var: "DEEPSEEK_KEY",
+            key_prefix: "sk-",
+        }),
+        "elevenlabs" => Some(ProviderSpec {
+            display_name: "ElevenLabs",
+            env_var: "ELEVENLABS_KEY",
+            // An underscore, unlike every other prefix here.
+            key_prefix: "sk_",
         }),
         _ => None,
     }
@@ -620,6 +802,14 @@ fn provider_with_key(name: &str, client: &Client, key: String) -> Option<Box<dyn
             key,
         })),
         "cheaperinference" => Some(Box::new(CheaperInference {
+            client: client.clone(),
+            key,
+        })),
+        "deepseek" => Some(Box::new(DeepSeek {
+            client: client.clone(),
+            key,
+        })),
+        "elevenlabs" => Some(Box::new(ElevenLabs {
             client: client.clone(),
             key,
         })),
@@ -2091,6 +2281,14 @@ pub fn take_notifications(
 mod tests {
     use super::*;
 
+    /// Every provider this build knows, as the database lists them.
+    ///
+    /// Tests say this rather than a count: adding a provider should not mean
+    /// hunting for a `2` that used to be right.
+    fn every_provider() -> Vec<String> {
+        PROVIDERS.iter().map(|name| (*name).to_string()).collect()
+    }
+
     fn memory_database() -> Connection {
         let connection = Connection::open_in_memory().expect("in-memory database");
         initialize_database(&connection).expect("schema");
@@ -2985,30 +3183,31 @@ mod tests {
         save_settings(&connection, &settings).expect("settings");
 
         // Never asked: due, which is what makes a fresh install fetch.
-        assert_eq!(
-            due_providers(&connection).expect("due"),
-            vec!["openrouter", "cheaperinference"]
-        );
+        assert_eq!(due_providers(&connection).expect("due"), PROVIDERS.to_vec());
 
-        // OpenRouter on a four-hour interval, the other on the app default.
+        // OpenRouter on a four-hour interval; everything else stays on the app
+        // default, so the assertion says which one moved rather than listing the
+        // whole table.
         set_provider_interval(&connection, "openrouter", Some(240)).expect("stored");
+        let intervals = resolved_intervals(&connection).expect("resolved");
         assert_eq!(
-            resolved_intervals(&connection).expect("resolved"),
-            vec![
-                ("openrouter".to_string(), 240),
-                ("cheaperinference".to_string(), 30),
-            ]
+            intervals.iter().find(|(name, _)| name == "openrouter"),
+            Some(&("openrouter".to_string(), 240))
         );
+        assert!(intervals
+            .iter()
+            .filter(|(name, _)| name != "openrouter")
+            .all(|(_, minutes)| *minutes == 30));
 
-        record_attempts(&connection, &["openrouter", "cheaperinference"]).expect("recorded");
+        record_attempts(&connection, &PROVIDERS).expect("recorded");
         assert!(
             due_providers(&connection).expect("due").is_empty(),
             "nothing is due straight after being asked"
         );
 
-        // An attempt an hour ago: the 30-minute provider is due again and the
-        // four-hour one is not. Backdating the row is how the clock is moved
-        // here, since the comparison itself is SQLite's.
+        // An attempt an hour ago: the app-default providers are due again and the
+        // four-hour one is not. Backdating the row is how the clock is moved here,
+        // since the comparison itself is SQLite's.
         connection
             .execute(
                 "UPDATE providers SET last_attempt_at = datetime('now', '-1 hour')",
@@ -3016,7 +3215,9 @@ mod tests {
             )
             .expect("backdated");
 
-        assert_eq!(due_providers(&connection).expect("due"), vec!["cheaperinference"]);
+        let due = due_providers(&connection).expect("due");
+        assert!(!due.contains(&"openrouter"), "four hours have not passed");
+        assert!(due.contains(&"cheaperinference"), "thirty minutes have");
 
         // Clearing the override puts it back on the app default, and zero is
         // clamped so it cannot become a spin loop against a paid API.
@@ -3222,12 +3423,12 @@ provider_threshold_usd,key_fingerprint"
     fn a_provider_that_is_switched_off_stops_being_watched() {
         let connection = memory_database();
 
+        assert_eq!(tracked_providers(&connection).expect("tracked"), every_provider());
+        assert_eq!(due_providers(&connection).expect("due").len(), PROVIDERS.len());
         assert_eq!(
-            tracked_providers(&connection).expect("tracked"),
-            vec!["openrouter", "cheaperinference"]
+            resolved_thresholds(&connection).expect("resolved").len(),
+            PROVIDERS.len()
         );
-        assert_eq!(due_providers(&connection).expect("due").len(), 2);
-        assert_eq!(resolved_thresholds(&connection).expect("resolved").len(), 2);
 
         // A reading, so there is history to keep.
         connection
@@ -3244,24 +3445,25 @@ provider_threshold_usd,key_fingerprint"
         // Not tracked, not fetched, not reported on. Silence is the whole point:
         // a tray that still colours itself for a provider nobody is watching is a
         // lie about what the app knows.
-        assert_eq!(
-            tracked_providers(&connection).expect("tracked"),
-            vec!["cheaperinference"]
-        );
-        assert_eq!(due_providers(&connection).expect("due"), vec!["cheaperinference"]);
+        let tracked_now = tracked_providers(&connection).expect("tracked");
+        assert!(!tracked_now.contains(&"openrouter".to_string()), "switched off");
+        assert_eq!(tracked_now.len(), PROVIDERS.len() - 1);
+        assert_eq!(tracked_now, {
+            let mut rest = every_provider();
+            rest.retain(|name| name != "openrouter");
+            rest
+        });
+
+        assert!(!due_providers(&connection).expect("due").contains(&"openrouter"));
         // What an unqualified refresh fetches: asking for everything means
         // everything being watched, not every adapter this build has.
-        assert_eq!(
-            tracked_kinds(&connection).expect("kinds"),
-            vec!["cheaperinference"]
-        );
-        assert_eq!(
-            resolved_thresholds(&connection)
+        assert!(!tracked_kinds(&connection).expect("kinds").contains(&"openrouter"));
+        assert!(
+            !resolved_thresholds(&connection)
                 .expect("resolved")
-                .into_iter()
-                .map(|(name, _)| name)
-                .collect::<Vec<_>>(),
-            vec!["cheaperinference"]
+                .iter()
+                .any(|(name, _)| name == "openrouter"),
+            "a switched-off provider cannot recolour the tray"
         );
 
         // The row, the history and the earliest reading are all still there.
@@ -3280,8 +3482,11 @@ provider_threshold_usd,key_fingerprint"
 
         // And switching back on restores it exactly.
         set_provider_enabled(&connection, "openrouter", true).expect("switched on");
-        assert_eq!(tracked_providers(&connection).expect("tracked").len(), 2);
-        assert_eq!(resolved_thresholds(&connection).expect("resolved").len(), 2);
+        assert_eq!(tracked_providers(&connection).expect("tracked"), every_provider());
+        assert_eq!(
+            resolved_thresholds(&connection).expect("resolved").len(),
+            PROVIDERS.len()
+        );
 
         assert!(set_provider_enabled(&connection, "nowhere", false).is_err());
     }
@@ -3302,7 +3507,108 @@ provider_threshold_usd,key_fingerprint"
             .expect("enabled");
 
         assert_eq!(enabled, 1);
-        assert!(tracked_providers(&connection).expect("tracked").len() == 2);
+        assert_eq!(
+            tracked_providers(&connection).expect("tracked").len(),
+            PROVIDERS.len()
+        );
+    }
+
+    /// A character quota is not money, so it must never be compared to a dollar
+    /// threshold. Checked against the same numbers as a balance, where the answer
+    /// would be "announce it", so the exclusion is doing work rather than the test
+    /// passing by accident.
+    #[test]
+    fn a_quota_is_never_compared_to_a_dollar_threshold() {
+        let connection = memory_database();
+        let settings = Settings {
+            low_balance_threshold: 100.0,
+            ..Settings::default()
+        };
+
+        let mut quota = balance(Basis::Quota, 5.0, None, None);
+        quota.provider = "elevenlabs";
+
+        let notices = take_notifications(&connection, &[("elevenlabs", Ok(quota))], &settings)
+            .expect("notices");
+        assert!(notices.is_empty(), "5 characters is not 5 dollars");
+
+        // The same figure as money is below the threshold and is news, which is
+        // what makes the line above meaningful.
+        let mut money = balance(Basis::AccountCredits, 5.0, Some(5.0), None);
+        money.provider = "elevenlabs";
+
+        let notices = take_notifications(&connection, &[("elevenlabs", Ok(money))], &settings)
+            .expect("notices");
+        assert_eq!(notices.len(), 1, "$5 under a $100 threshold is announced");
+    }
+
+    #[test]
+    fn a_quota_survives_a_round_trip_through_the_database() {
+        let connection = memory_database();
+
+        let mut reading = balance(Basis::Quota, 4200.0, None, None);
+        reading.provider = "elevenlabs";
+        save_snapshot(&connection, &reading).expect("saved");
+
+        let stored = history(&connection, "elevenlabs", 1).expect("history");
+        assert_eq!(stored[0].basis, Basis::Quota);
+        assert_eq!(stored[0].basis.as_str(), "quota");
+        // And it is not money, so it cannot be summed or drawn with money.
+        assert!(!stored[0].basis.is_balance());
+    }
+
+    /// A fake key for each provider. The five prefixes are not disjoint — an
+    /// OpenRouter key also starts with DeepSeek's `sk-` — so the registry order is
+    /// load-bearing and a reorder would silently send keys to the wrong adapter.
+    #[test]
+    fn a_key_prefix_picks_the_right_provider_when_one_prefix_contains_another() {
+        assert_eq!(provider_for_key("sk-or-v1-abcdef"), Some("openrouter"));
+        assert_eq!(provider_for_key("sk-abcdef"), Some("deepseek"));
+        assert_eq!(provider_for_key("sk_abcdef"), Some("elevenlabs"));
+        assert_eq!(provider_for_key("ci_live_abcdef"), Some("cheaperinference"));
+        assert_eq!(provider_for_key("not-a-key"), None);
+
+        // And the hint names the right provider when one is filed under another.
+        let hint = misdirected_key_hint("openrouter", "sk-abcdef").expect("a hint");
+        assert!(hint.contains("DeepSeek"), "{hint}");
+    }
+
+    /// DeepSeek prices in the account's currency. Only a USD figure can be
+    /// compared to a dollar threshold, so anything else has to fail loudly rather
+    /// than be relabelled.
+    #[test]
+    fn a_deepseek_balance_is_only_read_when_it_is_in_dollars() {
+        let balance_info = |currency: &str, total: &str| DeepSeekBalance {
+            currency: currency.to_string(),
+            total_balance: total.to_string(),
+        };
+
+        // USD is picked out even when another currency comes first.
+        let response = DeepSeekResponse {
+            balance_infos: vec![
+                balance_info("CNY", "110.00"),
+                balance_info("USD", "15.37"),
+            ],
+        };
+        assert_eq!(deepseek_usd_balance(&response).expect("read"), 15.37);
+
+        // A CNY-only account is refused, and the message says which currency it
+        // actually found.
+        let response = DeepSeekResponse {
+            balance_infos: vec![balance_info("CNY", "110.00")],
+        };
+        let error = deepseek_usd_balance(&response).expect_err("refused");
+        assert!(error.to_string().contains("CNY"), "{error}");
+
+        // Nothing at all, and a figure that is not a number.
+        assert!(deepseek_usd_balance(&DeepSeekResponse {
+            balance_infos: vec![]
+        })
+        .is_err());
+        assert!(deepseek_usd_balance(&DeepSeekResponse {
+            balance_infos: vec![balance_info("USD", "not a number")]
+        })
+        .is_err());
     }
 
     #[test]

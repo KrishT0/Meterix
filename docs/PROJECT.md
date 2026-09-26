@@ -144,7 +144,7 @@ meterix-cli forget-key <provider>          remove a stored API key
 `limit` defaults to 20. At a 30-minute poll that is roughly ten hours, so pass a
 bigger number when looking at a week or a month.
 
-Providers are `openrouter` and `cheaperinference`.
+Providers are `openrouter`, `cheaperinference`, `deepseek` and `elevenlabs`.
 
 ## Data model
 
@@ -372,6 +372,40 @@ one the app has been told to leave alone, so fetching it would store readings th
 dashboard will not show and the notifier must not act on. Naming a provider
 explicitly is still honoured whether or not it is tracked, because asking for one
 by name is a deliberate act.
+
+**Four providers, chosen by whether they publish a number worth showing.** A
+provider is only worth an adapter if its API will say how much is left, so each
+candidate was audited for that before any code was written:
+
+| Provider | What its API actually offers | Added? |
+|---|---|---|
+| DeepSeek | `GET /user/balance` — a real prepaid balance in the account's currency | yes |
+| ElevenLabs | `GET /v1/user/subscription` — a monthly **character** allowance | yes |
+| OpenAI | `GET /v1/organization/costs` — historical **spend**, behind an *admin* key | no |
+| Anthropic | `GET /v1/organizations/cost_report` — **spend**, behind an *admin* key that an individual account cannot even have | no |
+| Groq | nothing. Thirty-one candidate paths return 404; the only signal is rate-limit headers on a *billed* completion or a 429 | no |
+| AWS Bedrock | no balance endpoint at all; account credits live in the AWS Billing API and authenticate by request signature, not a key | no |
+
+The two that were left out for offering spend rather than a balance are a
+different case from the two with nothing at all, and both are worth revisiting if
+the app ever grows a "spend this month" view rather than a balance one.
+
+**A quota is not money, and the basis is what keeps that true.** ElevenLabs sells
+characters, so it needed a fourth `Basis` rather than being squeezed into an
+existing one. `is_balance` is false for it, which is the single flag that decides
+what may be compared to a dollar threshold, summed into the dollar total or drawn
+on the dollar chart — the same exclusion spend already had, for a different
+reason. `figure()` on the frontend is what puts "ch" on the number, because a bare
+`12431.00` in a column of dollar figures reads as dollars.
+
+A DeepSeek account funded in CNY is refused rather than relabelled: the message
+says which currency it found. Showing a figure in yuan under a dollar sign would
+be worse than an error, because it looks like an answer.
+
+**Key prefixes are not disjoint, so the registry order is load-bearing.**
+OpenRouter's `sk-or-` keys also start with DeepSeek's `sk-`, and
+`provider_for_key` takes the first match. A test pins all five prefixes, because
+reordering `PROVIDERS` would silently send keys to the wrong adapter.
 
 **Low is a per-provider threshold, resolved in one place.** `effective_threshold`
 is the only thing that decides whether a balance counts as low, and it resolves
@@ -695,6 +729,14 @@ nothing in the app acts on it.
 - "Remove a provider" removes a key. Switching a provider off is the gentler
   thing and keeps everything; removing is still the only way to get rid of a key,
   and the keychain entry is all it can mean.
+- The settings screen still offers a **Low at** box for a provider whose number is
+  not money, and setting it does nothing. The behaviour is right — a quota is
+  never compared to a dollar threshold — but the control should not be offered.
+  Hiding it needs the last reading's basis in the settings payload, and that is
+  not static: OpenRouter reports a balance or spend depending on the account.
+- A DeepSeek account funded in CNY is refused rather than shown in yuan, so it
+  reports an error instead of a figure. Correct, and useless to anyone whose
+  account is in yuan; it needs a currency on the snapshot to do better.
 - A headless or minimal Linux install may have no Secret Service, so `keyring`
   will fail. Cross-platform is not free on that leg.
 - Installers cannot be built in this environment. `npm run tauri build` gets

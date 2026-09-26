@@ -56,9 +56,35 @@ export function basisLabel(basis: Basis | null): string {
       return 'Key cap remaining'
     case 'usage':
       return 'Spend so far, not a balance'
+    case 'quota':
+      return 'Allowance left, not money'
     case null:
       return 'No reading yet'
   }
+}
+
+/**
+ * Whether a stored figure is money left, mirroring `Basis::is_balance` in the core.
+ *
+ * Shared rather than repeated as a `!== 'usage'` check wherever it is needed,
+ * because that is exactly how the chart and the total would come to disagree. A
+ * character quota and a spend figure are both excluded, for different reasons: one
+ * is not money at all, the other only ever counts up.
+ */
+export function isMoney(basis: Basis | null): boolean {
+  return basis === 'account_credits' || basis === 'key_cap'
+}
+
+/**
+ * A figure with the unit its basis implies, for a column of numbers.
+ *
+ * A quota is a character count, so a bare `4200.00` sitting among dollar figures
+ * reads as dollars. The suffix is the whole point.
+ */
+export function figure(value: number | null, basis: Basis | null): string {
+  if (value === null) return '\u2014'
+  if (basis === 'quota') return `${Math.round(value).toLocaleString()} ch`
+  return usd(value).slice(1)
 }
 
 export function errorHeadline(kind: ErrorKind | null | undefined): string {

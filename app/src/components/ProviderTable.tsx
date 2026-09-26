@@ -1,7 +1,7 @@
 import type { CSSProperties } from 'react'
 
 import type { ProviderOverview, RefreshOutcome } from '../lib/api'
-import { basisLabel, errorHeadline, relativeTime, usd } from '../lib/format'
+import { basisLabel, errorHeadline, figure, relativeTime, usd } from '../lib/format'
 import { healthOf, tones } from './ui'
 
 const COLUMNS = 'grid-cols-[1.5fr_1.2fr_0.9fr_0.9fr_0.9fr]'
@@ -84,7 +84,7 @@ export function ProviderTable({
             </span>
 
             <span className="num text-right text-[12px]">
-              {provider.balance === null ? '—' : usd(provider.balance).slice(1)}
+              {figure(provider.balance, provider.basis)}
             </span>
 
             <span className="num text-right text-[12px] text-ink-dim">

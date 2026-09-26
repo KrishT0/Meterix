@@ -1,7 +1,7 @@
 import type { CSSProperties } from 'react'
 
 import type { ProviderOverview, RefreshOutcome, SnapshotRow } from '../lib/api'
-import { basisLabel, errorHeadline, relativeTime, usd } from '../lib/format'
+import { basisLabel, errorHeadline, figure, relativeTime, usd } from '../lib/format'
 import { CheckIcon, CrossIcon, Label, Pill, WarningIcon, healthOf, tones } from './ui'
 
 const TICKS = 12
@@ -162,10 +162,14 @@ export function ProviderCard({
       <div className="mt-3 flex items-end justify-between gap-3">
         <div>
           <Label className="text-ink-muted">
-            {provider.basis === 'usage' ? 'Spend so far' : 'Remaining'}
+            {provider.basis === 'usage'
+              ? 'Spend so far'
+              : provider.basis === 'quota'
+                ? 'Allowance left'
+                : 'Remaining'}
           </Label>
           <div className="num mt-0.5 text-[18px] leading-none font-semibold">
-            {provider.balance === null ? '——' : usd(provider.balance).slice(1)}
+            {figure(provider.balance, provider.basis)}
           </div>
         </div>
         <Ticks readings={readings} />

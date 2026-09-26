@@ -18,7 +18,7 @@ import {
 } from './components/ui'
 import type { ProviderOverview, RefreshOutcome, SaveKeyOutcome, SnapshotRow } from './lib/api'
 import * as api from './lib/api'
-import { amount, daySeconds, parseUtc, relativeTime, usd } from './lib/format'
+import { amount, daySeconds, isMoney, parseUtc, relativeTime, usd } from './lib/format'
 import { hueAt } from './lib/palette'
 
 /** Enough for a month of half-hourly polls, which is what the chart wants. */
@@ -35,7 +35,7 @@ function burnPerDay(series: SnapshotRow[][]): number | null {
 
   for (const rows of series) {
     const balances = rows
-      .filter((row) => row.basis !== 'usage')
+      .filter((row) => isMoney(row.basis))
       .slice()
       .sort((a, b) => parseUtc(a.recordedAt).getTime() - parseUtc(b.recordedAt).getTime())
 
@@ -156,7 +156,7 @@ export default function App() {
   // only providers that still hold a key. A provider whose key was removed keeps
   // its readings, and folding those in would put a balance on screen that
   // nothing can verify any more — and leave "—" sitting next to a stale spend.
-  const balances = shown.filter((row) => row.balance !== null && row.basis !== 'usage')
+  const balances = shown.filter((row) => row.balance !== null && isMoney(row.basis))
   const totalBalance = balances.reduce((sum, row) => sum + (row.balance ?? 0), 0)
 
   const priced = shown.filter((row) => row.accountCredits !== null)
