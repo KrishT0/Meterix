@@ -342,13 +342,24 @@ pub trait Provider: Send + Sync {
     async fn fetch_balance(&self) -> Result<Balance, ProviderError>;
 }
 
-struct OpenRouter {
+/// A gateway that speaks OpenRouter's own shape: a key endpoint and a credits
+/// endpoint under `/api/v1`.
+///
+/// Its `base_url` is a field rather than a constant because the shape is not
+/// OpenRouter's alone. Anything that cloned those two endpoints can be read by
+/// this one adapter, so the compiled `openrouter` kind and a gateway row that
+/// names `openrouter_compatible` run exactly the same code rather than two
+/// copies of it that would drift.
+struct OpenRouterCompatible {
     client: Client,
     key: String,
+    /// The row's id, which is what a reading is filed under.
+    provider: String,
+    /// Where the gateway lives, with no trailing slash.
+    base_url: String,
 }
 
-const OPENROUTER_KEY_URL: &str = "https://openrouter.ai/api/v1/key";
-const OPENROUTER_CREDITS_URL: &str = "https://openrouter.ai/api/v1/credits";
+const OPENROUTER_BASE_URL: &str = "https://openrouter.ai";
 
 #[derive(Debug, Deserialize)]
 struct OpenRouterResponse {
@@ -382,6 +393,7 @@ struct OpenRouterCredits {
 /// would send a capped key backwards from cap-remaining to reporting spend.
 /// Spend so far is last, and is labelled as not being a balance.
 fn openrouter_balance(
+    provider: &str,
     key_info: &OpenRouterData,
     account_credits: Option<f64>,
 ) -> Result<Balance, ProviderError> {
@@ -398,7 +410,7 @@ fn openrouter_balance(
     };
 
     Ok(Balance {
-        provider: "openrouter".to_string(),
+        provider: provider.to_string(),
         basis,
         remaining,
         account_credits,
@@ -413,13 +425,14 @@ fn openrouter_balance(
 }
 
 #[async_trait]
-impl Provider for OpenRouter {
-
+impl Provider for OpenRouterCompatible {
     async fn fetch_balance(&self) -> Result<Balance, ProviderError> {
-        let key_info =
-            fetch_json::<OpenRouterResponse>(&self.client, &self.key, OPENROUTER_KEY_URL)
-                .await?
-                .data;
+        let key_url = format!("{}/api/v1/key", self.base_url);
+        let credits_url = format!("{}/api/v1/credits", self.base_url);
+
+        let key_info = fetch_json::<OpenRouterResponse>(&self.client, &self.key, &key_url)
+            .await?
+            .data;
 
         // The real account balance. Read on every fetch even though the docs
         // say a management key is required: a personal key can read it too, and
@@ -428,13 +441,13 @@ impl Provider for OpenRouter {
         let account_credits = fetch_json::<OpenRouterCreditsResponse>(
             &self.client,
             &self.key,
-            OPENROUTER_CREDITS_URL,
+            &credits_url,
         )
         .await
         .ok()
         .map(|credits| credits.data.total_credits - credits.data.total_usage);
 
-        openrouter_balance(&key_info, account_credits)
+        openrouter_balance(&self.provider, &key_info, account_credits)
     }
 }
 
@@ -787,9 +800,11 @@ fn unknown_provider(name: &str) -> ProviderError {
 /// whatever is stored.
 fn provider_with_key(name: &str, client: &Client, key: String) -> Option<Box<dyn Provider>> {
     match name {
-        "openrouter" => Some(Box::new(OpenRouter {
+        "openrouter" => Some(Box::new(OpenRouterCompatible {
             client: client.clone(),
             key,
+            provider: "openrouter".to_string(),
+            base_url: OPENROUTER_BASE_URL.to_string(),
         })),
         "cheaperinference" => Some(Box::new(CheaperInference {
             client: client.clone(),
@@ -2530,7 +2545,7 @@ mod tests {
     #[test]
     fn account_credits_win_over_a_cap_and_over_usage() {
         let info = key_info(Some(50.0), Some(7.5));
-        let resolved = openrouter_balance(&info, Some(20.0)).expect("a balance");
+        let resolved = openrouter_balance("openrouter", &info, Some(20.0)).expect("a balance");
 
         assert_eq!(resolved.basis, Basis::AccountCredits);
         assert_eq!(resolved.remaining, 20.0);
@@ -2541,7 +2556,7 @@ mod tests {
     #[test]
     fn a_key_cap_is_used_when_credits_are_unreadable() {
         let info = key_info(Some(50.0), Some(7.5));
-        let resolved = openrouter_balance(&info, None).expect("a balance");
+        let resolved = openrouter_balance("openrouter", &info, None).expect("a balance");
 
         assert_eq!(resolved.basis, Basis::KeyCap);
         assert_eq!(resolved.remaining, 50.0);
@@ -2552,7 +2567,7 @@ mod tests {
     #[test]
     fn usage_is_the_last_resort_and_is_not_a_balance() {
         let info = key_info(None, Some(7.5));
-        let resolved = openrouter_balance(&info, None).expect("a balance");
+        let resolved = openrouter_balance("openrouter", &info, None).expect("a balance");
 
         assert_eq!(resolved.basis, Basis::Usage);
         assert_eq!(resolved.remaining, 7.5);
@@ -2562,7 +2577,7 @@ mod tests {
     #[test]
     fn a_response_with_no_numbers_at_all_is_an_error() {
         let info = key_info(None, None);
-        assert!(openrouter_balance(&info, None).is_err());
+        assert!(openrouter_balance("openrouter", &info, None).is_err());
     }
 
     #[test]
