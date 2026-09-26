@@ -177,7 +177,10 @@
   .traygrid { display:grid; grid-template-columns:340px 1fr; gap:26px; margin-top:16px; align-items:start; }
   .pop { background:var(--surface); border:1px solid var(--line); border-radius:12px; overflow:hidden; }
   .pophead { display:flex; align-items:center; gap:9px; border-bottom:1px solid var(--line); padding:10px 14px; }
-  .pophead .num:last-child { margin-left:auto; }
+  /* The total summarises the rows, so it sits under them, and it is the one figure
+     in the popover that carries a currency symbol. */
+  .ptotal { display:flex; align-items:center; gap:10px; border-top:1px solid var(--line); padding:8px 14px; }
+  .ptotal .num { margin-left:auto; font-size:13px; font-weight:600; }
   .popfoot { display:flex; gap:8px; border-top:1px solid var(--line); padding:10px 14px; }
   .prow { display:flex; align-items:center; gap:10px; padding:8px 14px; font-size:12px; }
   .pbal { margin-left:auto; color:var(--ink-dim); }
@@ -845,7 +848,10 @@
     <div class="sechead"><h2>Tray</h2><span class="badge">built</span></div>
     <p class="why">
       Each row takes its provider's hue, and a provider under its threshold gets the amber chip that
-      the dashboard has. The icon itself stays the three-bar mark: grey while nothing is configured,
+      the dashboard has. The heading carries the wordmark and the window controls and nothing else: the
+      dot that used to sit beside the name said what the tray icon beside it already says, and the total
+      moved to the foot, where it reads as the sum of the rows above it. It is the only figure here with
+      a currency symbol. The icon itself stays the three-bar mark: grey while nothing is configured,
       teal healthy, amber when anything is under, copper when a key was rejected. The minimise control
       puts the popover away and asks nothing, because hiding is what losing focus already does. Closing
       asks first, in the app's own dialog rather than the window one, because quitting stops the
@@ -855,9 +861,7 @@
     <div class="traygrid">
       <div class="pop">
         <div class="pophead">
-          <span class="cdot" style="color:#E0A64B"></span>
           <span style="font-size:12px">Meterix</span>
-          <span class="num" style="font-size:12px">139.94</span>
           <span class="wsp"></span>
           <span class="wctrls" style="margin-left:0; padding-left:8px">
             <span class="wctrl" title="Minimise"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M2.5 6h7"/></svg></span>
@@ -900,6 +904,7 @@
   
   <span class="num pbal rej">failed</span>
 </div>
+        <div class="ptotal"><span class="label">Total</span><span class="num">$139.94</span></div>
         <div class="popfoot"><span class="btn sec">Open dashboard</span><span class="btn sec">Refresh</span></div>
       </div>
 

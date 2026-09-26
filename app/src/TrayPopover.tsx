@@ -3,7 +3,7 @@ import type { CSSProperties } from 'react'
 import { listen } from '@tauri-apps/api/event'
 import { invoke } from '@tauri-apps/api/core'
 
-import { Button, StatusDot, WindowControls, healthOf, tones } from './components/ui'
+import { Button, WindowControls, healthOf, tones } from './components/ui'
 import type { ProviderOverview, RefreshOutcome } from './lib/api'
 import * as api from './lib/api'
 import { relativeTime, usd } from './lib/format'
@@ -71,15 +71,6 @@ export function TrayPopover() {
   const balances = shown.filter((row) => row.balance !== null && row.basis !== 'usage')
   const total = balances.reduce((sum, row) => sum + (row.balance ?? 0), 0)
 
-  const healths = shown.map((row) => healthOf(row, outcomes[row.name]))
-  const overallTone = healths.includes('error')
-    ? 'copper'
-    : healths.includes('low')
-      ? 'amber'
-      : healths.includes('ok')
-        ? 'teal'
-        : 'muted'
-
   const lastReading = shown
     .map((row) => row.recordedAt)
     .filter((value): value is string => value !== null)
@@ -89,18 +80,14 @@ export function TrayPopover() {
   return (
     <div className="flex h-full flex-col bg-surface">
       {/* The popover is frameless, so this strip is both its heading and its title
-          bar: drag it to move the popover, and the control on the right quits the
-          app after asking. Hiding the popover is what losing focus already does, so
-          a button for it would be a second way to do one thing. */}
+          bar: drag it to move the popover, and it carries the window controls. The
+          dot that used to sit beside the wordmark said what the tray icon already
+          says, on the one surface where the icon is inches away. */}
       <div
         data-tauri-drag-region="deep"
         className="flex items-center gap-2 border-b border-line px-3.5 py-2.5"
       >
-        <StatusDot tone={overallTone} />
-        <span className="text-[12px] font-medium">Meterix</span>
-        <span className="num ml-auto text-[12px]">
-          {balances.length === 0 ? '—' : usd(total).slice(1)}
-        </span>
+        <span className="flex flex-1 items-center text-[12px] font-medium">Meterix</span>
         <WindowControls window="popover" />
       </div>
 
@@ -153,6 +140,16 @@ export function TrayPopover() {
             )
           })
         )}
+      </div>
+
+      {/* The total is a summary of the rows above it, so it goes under them rather
+          than in the heading. It is also the one figure in here that says what
+          currency it is in: the rows are read against it. */}
+      <div className="flex shrink-0 items-center gap-2 border-t border-line px-3.5 py-2">
+        <span className="label-sm text-ink-dim">Total</span>
+        <span className="num ml-auto text-[13px] font-medium">
+          {balances.length === 0 ? '—' : usd(total)}
+        </span>
       </div>
 
       <div className="flex items-center gap-2 border-t border-line px-3.5 py-2.5">

@@ -119,7 +119,10 @@ export function Button({ variant = 'secondary', className = '', ...rest }: Butto
 type WindowControl = 'minimise' | 'maximise' | 'close'
 
 const controlPaths: Record<WindowControl, ReactNode> = {
-  minimise: <path d="M3 6h10" />,
+  // The bar is drawn on the same line the other two centre on. It was at y=6, which
+  // is above centre in a 16-unit box, so the minimise icon sat a little higher than
+  // the close beside it. The coordinates came from the 12-unit mockup.
+  minimise: <path d="M3 8h10" />,
   maximise: <rect x="3.5" y="3.5" width="9" height="9" rx="1.5" />,
   close: <path d="M4 4l8 8M12 4l-8 8" />,
 }
