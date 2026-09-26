@@ -14,7 +14,7 @@ use meterix_core::{
     Balance, Connection, PROVIDERS, SaveOutcome, adopt_legacy_database, display_name,
     fetch_selected, first_reading_at, forget_key, history, history_csv, open_database,
     provider_enabled, reading_counts, requested_providers, resolved_intervals,
-    resolved_thresholds, save_snapshot, save_verified_key, tracked_kinds,
+    resolved_thresholds, save_snapshot, save_verified_key, tracked_providers,
 };
 
 const DEFAULT_HISTORY_LIMIT: usize = 20;
@@ -63,7 +63,7 @@ async fn fetch(only: Option<&str>) -> Result<()> {
 
         match only {
             Some(name) => requested_providers(Some(name))?,
-            None => tracked_kinds(&connection)?,
+            None => tracked_providers(&connection)?,
         }
     };
 

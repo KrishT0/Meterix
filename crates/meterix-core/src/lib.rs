@@ -125,7 +125,10 @@ impl Basis {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Balance {
-    pub provider: &'static str,
+    /// The provider's id as the database knows it. A `String` rather than a
+    /// compile-time string because a provider can now be a row somebody added,
+    /// and an id nobody agreed on in advance cannot be `&'static`.
+    pub provider: String,
     /// What `remaining` means. Check `basis.is_balance()` before showing
     /// `remaining` as money left.
     pub basis: Basis,
@@ -336,7 +339,6 @@ async fn fetch_json_as<T: DeserializeOwned>(
 
 #[async_trait]
 pub trait Provider: Send + Sync {
-    fn name(&self) -> &'static str;
     async fn fetch_balance(&self) -> Result<Balance, ProviderError>;
 }
 
@@ -396,7 +398,7 @@ fn openrouter_balance(
     };
 
     Ok(Balance {
-        provider: "openrouter",
+        provider: "openrouter".to_string(),
         basis,
         remaining,
         account_credits,
@@ -412,9 +414,6 @@ fn openrouter_balance(
 
 #[async_trait]
 impl Provider for OpenRouter {
-    fn name(&self) -> &'static str {
-        "openrouter"
-    }
 
     async fn fetch_balance(&self) -> Result<Balance, ProviderError> {
         let key_info =
@@ -472,9 +471,6 @@ struct CheaperInferenceUsage {
 
 #[async_trait]
 impl Provider for CheaperInference {
-    fn name(&self) -> &'static str {
-        "cheaperinference"
-    }
 
     async fn fetch_balance(&self) -> Result<Balance, ProviderError> {
         let response = fetch_json::<CheaperInferenceResponse>(
@@ -497,7 +493,7 @@ impl Provider for CheaperInference {
         // This endpoint reports an account balance directly, so the value is
         // both the balance and the credits figure.
         Ok(Balance {
-            provider: "cheaperinference",
+            provider: "cheaperinference".to_string(),
             basis: Basis::AccountCredits,
             remaining: response.available_usd,
             account_credits: Some(response.available_usd),
@@ -536,9 +532,6 @@ struct DeepSeekBalance {
 
 #[async_trait]
 impl Provider for DeepSeek {
-    fn name(&self) -> &'static str {
-        "deepseek"
-    }
 
     async fn fetch_balance(&self) -> Result<Balance, ProviderError> {
         let response =
@@ -552,7 +545,7 @@ impl Provider for DeepSeek {
         let remaining = deepseek_usd_balance(&response)?;
 
         Ok(Balance {
-            provider: "deepseek",
+            provider: "deepseek".to_string(),
             basis: Basis::AccountCredits,
             remaining,
             account_credits: Some(remaining),
@@ -613,9 +606,6 @@ struct ElevenLabsSubscription {
 
 #[async_trait]
 impl Provider for ElevenLabs {
-    fn name(&self) -> &'static str {
-        "elevenlabs"
-    }
 
     async fn fetch_balance(&self) -> Result<Balance, ProviderError> {
         // `xi-api-key`, not a bearer token.
@@ -633,7 +623,7 @@ impl Provider for ElevenLabs {
         let remaining = subscription.character_limit - subscription.character_count;
 
         Ok(Balance {
-            provider: "elevenlabs",
+            provider: "elevenlabs".to_string(),
             // The basis is what keeps a character count out of the dollar total and
             // off the money chart.
             basis: Basis::Quota,
@@ -956,7 +946,7 @@ fn build_provider(
 
 /// One provider's result. `Err` is per-provider, so one failure does not hide
 /// the others.
-pub type Outcome = (&'static str, Result<Balance, ProviderError>);
+pub type Outcome = (String, Result<Balance, ProviderError>);
 
 /// Fetch balances, all providers or just one.
 ///
@@ -966,16 +956,20 @@ pub type Outcome = (&'static str, Result<Balance, ProviderError>);
 ///
 /// An unknown name is an error rather than an empty fetch, so a typo cannot look
 /// like "there was nothing to do".
-pub fn requested_providers(only: Option<&str>) -> Result<Vec<&'static str>> {
+pub fn requested_providers(only: Option<&str>) -> Result<Vec<String>> {
     match only {
         Some(name) => Ok(vec![
             PROVIDERS
                 .iter()
                 .copied()
                 .find(|provider| *provider == name)
-                .ok_or_else(|| anyhow!("unknown provider: {name}; use {}", PROVIDERS.join(", ")))?,
+                .ok_or_else(|| anyhow!("unknown provider: {name}; use {}", PROVIDERS.join(", ")))?
+                .to_string(),
         ]),
-        None => Ok(PROVIDERS.to_vec()),
+        None => Ok(PROVIDERS
+            .iter()
+            .map(|name| (*name).to_string())
+            .collect()),
     }
 }
 
@@ -985,7 +979,7 @@ pub fn requested_providers(only: Option<&str>) -> Result<Vec<&'static str>> {
 /// poller — so the ordering and the fingerprint handling cannot drift apart. What
 /// differs is only how each one works out its set: named explicitly, everything
 /// tracked, or whatever is due.
-pub async fn fetch_selected(names: &[&'static str]) -> Result<Vec<Outcome>> {
+pub async fn fetch_selected(names: &[String]) -> Result<Vec<Outcome>> {
     // ponytail: panics on a broken TLS setup rather than returning an error;
     // switch to Client::builder().build()? if that ever matters.
     let client = Client::new();
@@ -1002,7 +996,7 @@ pub async fn fetch_selected(names: &[&'static str]) -> Result<Vec<Outcome>> {
             },
             Err(error) => Err(error),
         };
-        outcomes.push((*name, result));
+        outcomes.push((name.clone(), result));
     }
 
     Ok(outcomes)
@@ -1868,22 +1862,6 @@ pub fn provider_enabled(connection: &Connection) -> Result<Vec<(String, bool)>> 
         .context("could not read which providers are tracked")
 }
 
-/// The tracked providers as the registry's own ids, in the order they were added.
-///
-/// `tracked_providers` returns names from rows, which is what a screen wants. This
-/// is for the paths that have to hand a set to `fetch_selected`, whose providers
-/// are `&'static str` because an adapter is compiled in — the names come from the
-/// database, but only ones the registry knows can be asked for anything.
-pub fn tracked_kinds(connection: &Connection) -> Result<Vec<&'static str>> {
-    let tracked: HashSet<String> = tracked_providers(connection)?.into_iter().collect();
-
-    Ok(PROVIDERS
-        .iter()
-        .copied()
-        .filter(|name| tracked.contains(*name))
-        .collect())
-}
-
 /// Switch a provider on or off without deleting its key or its history.
 ///
 /// The reason this exists rather than "remove": a provider someone has stopped
@@ -1986,7 +1964,7 @@ pub fn resolved_intervals(connection: &Connection) -> Result<Vec<(String, u32)>>
 ///
 /// A provider that has never been asked is due, which is what makes a fresh
 /// install fetch without anyone pressing anything.
-pub fn due_providers(connection: &Connection) -> Result<Vec<&'static str>> {
+pub fn due_providers(connection: &Connection) -> Result<Vec<String>> {
     let settings = load_settings(connection)?;
 
     let mut statement = connection.prepare(
@@ -1998,30 +1976,27 @@ pub fn due_providers(connection: &Connection) -> Result<Vec<&'static str>> {
          ORDER BY id",
     )?;
 
-    let named: HashSet<String> = statement
+    // Straight out of the query, which orders by id. The set that used to be built
+    // here existed only to filter these rows through the compiled registry, and
+    // collecting into it threw away that order: a fetch would have covered the
+    // providers in whatever order a hash map happened to produce.
+    statement
         .query_map(params![settings.poll_interval_minutes], |row| row.get(0))?
-        .collect::<rusqlite::Result<Vec<String>>>()?
-        .into_iter()
-        .collect();
-
-    // In the app's own provider order rather than the query's, so a fetch covers
-    // providers in the order everything else uses.
-    Ok(PROVIDERS
-        .iter()
-        .copied()
-        .filter(|name| named.contains(*name))
-        .collect())
+        .collect::<rusqlite::Result<Vec<String>>>()
+        .context("could not read which providers are due")
 }
 /// Record that these providers were just asked.
 ///
 /// Written before the fetch, not after it, so a provider that fails backs off for
 /// its own interval instead of being retried on the next beat. A provider that is
 /// rate-limiting is the case that matters.
-pub fn record_attempts(connection: &Connection, providers: &[&str]) -> Result<()> {
+/// Takes anything string-like so a caller with `&[String]` and a test with
+/// `&["openrouter"]` both work without one of them building a vector to be read.
+pub fn record_attempts<S: AsRef<str>>(connection: &Connection, providers: &[S]) -> Result<()> {
     for provider in providers {
         connection.execute(
             "UPDATE providers SET last_attempt_at = CURRENT_TIMESTAMP WHERE name = ?1",
-            params![provider],
+            params![provider.as_ref()],
         )?;
     }
 
@@ -2204,7 +2179,8 @@ pub fn take_notifications(
     let mut notices = Vec::new();
 
     for (name, result) in outcomes {
-        let name = *name;
+        // Borrowed, not copied: the id is owned by the outcome now.
+        let name = name.as_str();
 
         let previous = connection
             .query_row(
@@ -2281,6 +2257,12 @@ pub fn take_notifications(
 mod tests {
     use super::*;
 
+    /// One provider's result, so a test says which provider and what happened
+    /// rather than repeating the tuple the fetch path happens to use.
+    fn outcome(provider: &str, result: Result<Balance, ProviderError>) -> Outcome {
+        (provider.to_string(), result)
+    }
+
     /// Every provider this build knows, as the database lists them.
     ///
     /// Tests say this rather than a count: adding a provider should not mean
@@ -2304,7 +2286,7 @@ mod tests {
 
     fn balance(basis: Basis, remaining: f64, credits: Option<f64>, usage: Option<f64>) -> Balance {
         Balance {
-            provider: "openrouter",
+            provider: "openrouter".to_string(),
             basis,
             remaining,
             account_credits: credits,
@@ -2337,7 +2319,7 @@ mod tests {
 
         let notices = take_notifications(
             &connection,
-            &[("openrouter", ok(50.0))],
+            &[outcome("openrouter", ok(50.0))],
             &low_settings(10.0),
         )
         .expect("notices");
@@ -2350,7 +2332,7 @@ mod tests {
         let connection = memory_database();
         let settings = low_settings(10.0);
 
-        let first = take_notifications(&connection, &[("openrouter", ok(6.4))], &settings)
+        let first = take_notifications(&connection, &[outcome("openrouter", ok(6.4))], &settings)
             .expect("notices");
         assert_eq!(
             first,
@@ -2364,15 +2346,15 @@ mod tests {
 
         // Still low on the next check, but the user has already been told.
         assert!(
-            take_notifications(&connection, &[("openrouter", ok(6.4))], &settings)
+            take_notifications(&connection, &[outcome("openrouter", ok(6.4))], &settings)
                 .expect("notices")
                 .is_empty()
         );
 
         // Topped up, then crossed down again: that is a new event.
-        take_notifications(&connection, &[("openrouter", ok(25.0))], &settings).expect("notices");
+        take_notifications(&connection, &[outcome("openrouter", ok(25.0))], &settings).expect("notices");
         assert_eq!(
-            take_notifications(&connection, &[("openrouter", ok(6.4))], &settings)
+            take_notifications(&connection, &[outcome("openrouter", ok(6.4))], &settings)
                 .expect("notices")
                 .len(),
             1
@@ -2386,7 +2368,7 @@ mod tests {
         let connection = memory_database();
 
         let notices =
-            take_notifications(&connection, &[("openrouter", ok(6.4))], &low_settings(10.0))
+            take_notifications(&connection, &[outcome("openrouter", ok(6.4))], &low_settings(10.0))
                 .expect("notices");
 
         assert_eq!(notices.len(), 1);
@@ -2399,7 +2381,7 @@ mod tests {
 
         let first = take_notifications(
             &connection,
-            &[("openrouter", Err(ProviderError::Unauthorized))],
+            &[outcome("openrouter", Err(ProviderError::Unauthorized))],
             &settings,
         )
         .expect("notices");
@@ -2409,7 +2391,7 @@ mod tests {
         assert!(
             take_notifications(
                 &connection,
-                &[("openrouter", Err(ProviderError::Unauthorized))],
+                &[outcome("openrouter", Err(ProviderError::Unauthorized))],
                 &settings,
             )
             .expect("notices")
@@ -2417,11 +2399,11 @@ mod tests {
         );
 
         // A working key clears the memory, so breaking again is news again.
-        take_notifications(&connection, &[("openrouter", ok(50.0))], &settings).expect("notices");
+        take_notifications(&connection, &[outcome("openrouter", ok(50.0))], &settings).expect("notices");
         assert_eq!(
             take_notifications(
                 &connection,
-                &[("openrouter", Err(ProviderError::Unauthorized))],
+                &[outcome("openrouter", Err(ProviderError::Unauthorized))],
                 &settings,
             )
             .expect("notices")
@@ -2438,7 +2420,7 @@ mod tests {
 
         let notices = take_notifications(
             &connection,
-            &[("openrouter", Err(ProviderError::Unreachable("dns".into())))],
+            &[outcome("openrouter", Err(ProviderError::Unreachable("dns".into())))],
             &low_settings(10.0),
         )
         .expect("notices");
@@ -2451,19 +2433,19 @@ mod tests {
         let connection = memory_database();
         let settings = low_settings(10.0);
 
-        take_notifications(&connection, &[("openrouter", ok(6.4))], &settings).expect("notices");
+        take_notifications(&connection, &[outcome("openrouter", ok(6.4))], &settings).expect("notices");
 
         // Unknown is not the same as fine. Recording the blip as "no longer low"
         // would re-fire the warning as soon as the balance was readable again.
         take_notifications(
             &connection,
-            &[("openrouter", Err(ProviderError::Unreachable("dns".into())))],
+            &[outcome("openrouter", Err(ProviderError::Unreachable("dns".into())))],
             &settings,
         )
         .expect("notices");
 
         assert!(
-            take_notifications(&connection, &[("openrouter", ok(6.4))], &settings)
+            take_notifications(&connection, &[outcome("openrouter", ok(6.4))], &settings)
                 .expect("notices")
                 .is_empty()
         );
@@ -2476,7 +2458,7 @@ mod tests {
         // 6.4 of spend against a 10 threshold is not 6.4 of money left.
         let notices = take_notifications(
             &connection,
-            &[(
+            &[outcome(
                 "openrouter",
                 Ok(balance(Basis::Usage, 6.4, None, Some(6.4))),
             )],
@@ -2500,8 +2482,8 @@ mod tests {
         let notices = take_notifications(
             &connection,
             &[
-                ("openrouter", ok(6.4)),
-                ("cheaperinference", Err(ProviderError::Unauthorized)),
+                outcome("openrouter", ok(6.4)),
+                outcome("cheaperinference", Err(ProviderError::Unauthorized)),
             ],
             &settings,
         )
@@ -2517,7 +2499,7 @@ mod tests {
 
         let notices = take_notifications(
             &connection,
-            &[("openrouter", ok(6.4)), ("cheaperinference", ok(11.59))],
+            &[outcome("openrouter", ok(6.4)), outcome("cheaperinference", ok(11.59))],
             &low_settings(10.0),
         )
         .expect("notices");
@@ -2653,7 +2635,7 @@ mod tests {
         save_snapshot(
             &connection,
             &Balance {
-                provider: "cheaperinference",
+                provider: "cheaperinference".to_string(),
                 basis: Basis::AccountCredits,
                 remaining: 99.0,
                 account_credits: Some(99.0),
@@ -2683,7 +2665,7 @@ mod tests {
     fn unknown_provider_writes_nothing_and_says_so() {
         let connection = memory_database();
         let mut orphan = balance(Basis::Usage, 1.0, None, Some(1.0));
-        orphan.provider = "nowhere";
+        orphan.provider = "nowhere".to_string();
 
         assert!(save_snapshot(&connection, &orphan).is_err());
         assert!(
@@ -2896,7 +2878,7 @@ mod tests {
         let connection = memory_database();
 
         let mut windowed = balance(Basis::AccountCredits, 13.51, Some(13.51), Some(1.49));
-        windowed.provider = "cheaperinference";
+        windowed.provider = "cheaperinference".to_string();
         windowed.spend_window_days = Some(90);
         save_snapshot(&connection, &windowed).expect("saved");
 
@@ -3131,7 +3113,7 @@ mod tests {
         let connection = memory_database();
 
         let mut reading = balance(Basis::AccountCredits, 40.0, Some(40.0), None);
-        reading.provider = "cheaperinference";
+        reading.provider = "cheaperinference".to_string();
         reading.provider_threshold = Some(25.0);
         save_snapshot(&connection, &reading).expect("saved");
 
@@ -3216,8 +3198,8 @@ mod tests {
             .expect("backdated");
 
         let due = due_providers(&connection).expect("due");
-        assert!(!due.contains(&"openrouter"), "four hours have not passed");
-        assert!(due.contains(&"cheaperinference"), "thirty minutes have");
+        assert!(!due.iter().any(|name| name == "openrouter"), "four hours have not passed");
+        assert!(due.iter().any(|name| name == "cheaperinference"), "thirty minutes have");
 
         // Clearing the override puts it back on the app default, and zero is
         // clamped so it cannot become a spin loop against a paid API.
@@ -3454,10 +3436,16 @@ provider_threshold_usd,key_fingerprint"
             rest
         });
 
-        assert!(!due_providers(&connection).expect("due").contains(&"openrouter"));
+        assert!(!due_providers(&connection)
+            .expect("due")
+            .iter()
+            .any(|name| name == "openrouter"));
         // What an unqualified refresh fetches: asking for everything means
         // everything being watched, not every adapter this build has.
-        assert!(!tracked_kinds(&connection).expect("kinds").contains(&"openrouter"));
+        assert!(!tracked_providers(&connection)
+            .expect("tracked")
+            .iter()
+            .any(|name| name == "openrouter"));
         assert!(
             !resolved_thresholds(&connection)
                 .expect("resolved")
@@ -3526,18 +3514,18 @@ provider_threshold_usd,key_fingerprint"
         };
 
         let mut quota = balance(Basis::Quota, 5.0, None, None);
-        quota.provider = "elevenlabs";
+        quota.provider = "elevenlabs".to_string();
 
-        let notices = take_notifications(&connection, &[("elevenlabs", Ok(quota))], &settings)
+        let notices = take_notifications(&connection, &[outcome("elevenlabs", Ok(quota))], &settings)
             .expect("notices");
         assert!(notices.is_empty(), "5 characters is not 5 dollars");
 
         // The same figure as money is below the threshold and is news, which is
         // what makes the line above meaningful.
         let mut money = balance(Basis::AccountCredits, 5.0, Some(5.0), None);
-        money.provider = "elevenlabs";
+        money.provider = "elevenlabs".to_string();
 
-        let notices = take_notifications(&connection, &[("elevenlabs", Ok(money))], &settings)
+        let notices = take_notifications(&connection, &[outcome("elevenlabs", Ok(money))], &settings)
             .expect("notices");
         assert_eq!(notices.len(), 1, "$5 under a $100 threshold is announced");
     }
@@ -3547,7 +3535,7 @@ provider_threshold_usd,key_fingerprint"
         let connection = memory_database();
 
         let mut reading = balance(Basis::Quota, 4200.0, None, None);
-        reading.provider = "elevenlabs";
+        reading.provider = "elevenlabs".to_string();
         save_snapshot(&connection, &reading).expect("saved");
 
         let stored = history(&connection, "elevenlabs", 1).expect("history");

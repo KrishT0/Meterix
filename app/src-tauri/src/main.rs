@@ -30,7 +30,7 @@ use meterix_core::{
     record_attempts, requested_providers, resolved_thresholds, save_settings as persist_settings,
     save_snapshot, save_verified_key, set_provider_enabled as store_enabled,
     set_provider_interval as store_interval, set_provider_threshold as store_threshold,
-    take_notifications, tracked_kinds, tracked_providers,
+    take_notifications, tracked_providers,
 };
 
 /// One provider, as the dashboard needs it: whether a key exists, and the most
@@ -164,7 +164,7 @@ async fn refresh_and_store(
         None => {
             let connection = open_database().map_err(|error| error.to_string())?;
 
-            tracked_kinds(&connection).map_err(|error| error.to_string())?
+            tracked_providers(&connection).map_err(|error| error.to_string())?
         }
     };
 
@@ -179,7 +179,7 @@ async fn refresh_and_store(
 /// message rather than two.
 async fn refresh_selected(
     app: &AppHandle,
-    providers: &[&'static str],
+    providers: &[String],
 ) -> Result<Vec<RefreshOutcome>, String> {
     // Fetch first and open the database afterwards. A rusqlite `Connection` is
     // Send but not Sync, so holding one across an await would make this future
