@@ -7,6 +7,7 @@ request: the only off-origin strings in `index.html` are the `schema.org` and
 ```
 index.html            the page: markup, stylesheet, and one script
 404.html              served with a real 404 for anything that is not an asset
+_headers              cache and security headers for the deployment
 fonts/                three self-hosted variable fonts, copied from the app's own packages
 og.png                1200x630 share card
 apple-touch-icon.png  180x180, because iOS ignores an SVG favicon
@@ -30,18 +31,27 @@ means an unmatched path returns `404.html` with a real 404 status rather than a
 200 with "not found" written on it, which is the difference between a missing page
 and a soft 404 that a crawler counts as thin content.
 
-**One thing to settle before the first deploy, marked in the code:**
+## It is deployed
 
-* **The origin.** Five places in `index.html` (`canonical`, `og:url`, `og:image`,
-  `twitter:image`, the JSON-LD `url`), plus `robots.txt` and `sitemap.xml`, still
-  use the reserved `example.com`. It is the one hostname that exists only for
-  documentation, so a forgotten one cannot point at somebody else's site. Replace
-  all of them with the real origin, and uncomment `routes` in `wrangler.jsonc` to
-  attach a custom domain. A `workers.dev` subdomain works, but it is not the
-  address that should end up in a canonical tag.
+**https://meterix.krisht0.workers.dev/** - a free workers.dev subdomain, connected to
+the repository through Workers Builds, so a push to `main` deploys the site. The
+Worker is named in `wrangler.jsonc` and so is the assets directory; see that file
+for the three dashboard settings this assumes.
 
-`og.png` is done, rendered from `mockup/og-card.html`. If a screenshot of the app is
-wanted there instead, replace the file and keep it 1200x630.
+There is no domain of its own and none is planned while this is pre-alpha, so that
+workers.dev hostname **is** the canonical origin. It appears in five places in
+`index.html` (the canonical link, `og:url`, `og:image`, `twitter:image` and the
+JSON-LD `url`) and twice more in `robots.txt` and `sitemap.xml`. Buying a domain
+later is those seven strings and nothing else.
+
+Worth knowing about the deployment, all of it measured against the live site rather
+than assumed: nested paths like `/a/b/c` return a real 404 with `404.html`, the fonts
+and images are served with the right content types, and everything used to come back
+`Cache-Control: public, max-age=0, must-revalidate` including the fonts, which is what
+`_headers` now fixes.
+
+`og.png` is rendered from `mockup/og-card.html`. If a screenshot of the app is wanted
+there instead, replace the file and keep it 1200x630.
 
 ## Cutting a release touches the site
 
@@ -59,24 +69,28 @@ points at the newest published release on its own. That script is the only reaso
 the page talks to anything off-origin: it reads `api.github.com` in the visitor's
 own browser, so the rate limit is theirs rather than a shared one.
 
-### Response headers, honestly
+### Response headers
 
-`_headers` and `_redirects` **do** work here, and this directory ships neither yet.
-The Workers static assets documentation has pages for both
-(`/workers/static-assets/headers/` and `.../redirects/`), and the platform limits
-page lists what they allow: 100 header rules, 2,000 static and 100 dynamic
-redirects. An earlier version of this file claimed otherwise, having looked at the
-wrong paths and generalised from two 404s.
+`_headers` in this directory sets them. It gives `/fonts/*` a year of `immutable`
+cache, a week to the two images that change when the design does, and three security
+headers (`X-Content-Type-Options`, `Referrer-Policy`, `X-Frame-Options`) to
+everything. Nothing else. The file explains what it deliberately leaves out and why,
+which is more useful than a list of what it sets.
 
-So security or cache headers (HSTS, `X-Content-Type-Options`, a long
-`Cache-Control` on `fonts/`) can be a plain text file in this directory when they
-are wanted, with no Worker involved. Caching and compression of assets are already
-automatic.
+Both `_headers` and `_redirects` work here; the Workers static assets documentation
+has pages for both (`/workers/static-assets/headers/` and `.../redirects/`), and the
+platform limits page lists what they allow: 100 header rules, 2,000 static and 100
+dynamic redirects. An earlier version of this file claimed Workers supported
+neither, having looked at the wrong paths and generalised from two 404s.
 
-**One constraint to remember when that file lands:** the download script fetches
-`https://api.github.com`, so any `Content-Security-Policy` must allow that host in
-`connect-src`. Without it the button silently falls back to linking the releases
-page, which works but is not the intent.
+`_redirects` is still unwritten, because there is nothing to redirect yet. It earns
+its place the day a domain exists and `www` needs folding into the apex.
+
+**Two things that would need revisiting if a Content-Security-Policy is ever
+added.** Every script on the page is inline and so is the stylesheet, so a policy
+would have to allow `script-src 'unsafe-inline'`; and the download script fetches
+`https://api.github.com`, which has to be in `connect-src` or the button silently
+falls back to linking the releases page.
 
 ## Rebuilding the two images
 

@@ -1,5 +1,6 @@
-# Replace https://example.com with the real origin once this is hosted.
+# The site is a free workers.dev subdomain, so this is the real origin rather than
+# a placeholder.
 User-agent: *
 Allow: /
 
-Sitemap: https://example.com/sitemap.xml
+Sitemap: https://meterix.krisht0.workers.dev/sitemap.xml

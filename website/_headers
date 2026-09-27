@@ -1,0 +1,50 @@
+# Response headers for the landing page.
+#
+# Written from what the deployment was actually sending. Before this file every
+# response carried only Cloudflare's defaults, which meant `Cache-Control: public,
+# max-age=0, must-revalidate` on the fonts as much as on the HTML: every visit
+# revalidated all three font files before any text could draw. There were no
+# security headers at all.
+#
+# The syntax is a URL pattern on its own line, then the headers to attach to
+# anything matching it, indented beneath. A request matching several patterns
+# inherits all of them.
+
+# The only rule that changes behaviour. These files are stable, self-hosted, and
+# replaced by replacing the file, so a year of not asking again is right. The names
+# carry no content hash, which is the one thing that would justify longer.
+/fonts/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# Two images that change when the design does. A week keeps them out of the way
+# without making a redesign take a year to show up.
+/og.png
+  Cache-Control: public, max-age=604800
+
+/apple-touch-icon.png
+  Cache-Control: public, max-age=604800
+
+# Everything else. None of these is sent today, and none of them can break a static
+# page with no forms and no third-party scripts.
+/*
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  X-Frame-Options: DENY
+
+# Deliberately absent:
+#
+# Strict-Transport-Security. workers.dev is on the HSTS preload list, which was
+# checked rather than assumed (hstspreload.org answers "preloaded" for it), so
+# browsers already refuse plain HTTP for this host and the header would change
+# nothing at all. It becomes worth adding the day this moves to its own domain.
+#
+# Content-Security-Policy. Every script on the page is inline and so is the whole
+# stylesheet, which is the page's stated design: one file, no build step, no
+# render-blocking request. A policy would therefore have to allow
+# `script-src 'unsafe-inline'` and would buy close to nothing. A real CSP means
+# moving the script and the stylesheet into files of their own, reversing that
+# decision. If that ever happens, the policy needs api.github.com in `connect-src`,
+# because the download button reads the release list from it.
+#
+# Cache-Control on the HTML. Cloudflare's default of `max-age=0, must-revalidate`
+# is exactly right for a page whose content changes on every deploy.

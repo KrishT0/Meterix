@@ -19,9 +19,9 @@
   2. The page is dark only, because the app is. A light landing page wrapped around
      a dark product would be a different brand.
 
-  One placeholder is left before this can be hosted, and README.md lists it: the
-  reserved example.com origin, which stands in for the real hostname in seven
-  places. The repository URL and og.png both exist now.
+  Nothing in here is a placeholder any more. The origin is the hostname Cloudflare
+  assigned, https://meterix.krisht0.workers.dev/, and README.md says what to change
+  if that address ever moves. The repository and og.png are real too.
 -->
 <html lang="en">
     <head>
@@ -33,14 +33,12 @@
             content="Track remaining LLM API credits from OpenRouter, DeepSeek, ElevenLabs and more in your system tray. Open source and local."
         />
 
-        <!-- The reserved example.com host below stands in for the real origin. It is
-         the one hostname that exists only for documentation, so a forgotten one
-         cannot point at somebody else's site.
-
-         It appears five times on this page: the canonical link, og:url,
-         og:image, twitter:image and the JSON-LD url. It also appears in
-         robots.txt and sitemap.xml. -->
-        <link rel="canonical" href="https://example.com/" />
+        <!-- The origin is the free workers.dev hostname, because this site has no
+         domain of its own and one was not worth buying for a pre-alpha. It appears
+         five times on this page (the canonical link, og:url, og:image, twitter:image
+         and the JSON-LD url) and twice more in robots.txt and sitemap.xml, so moving
+         to a real domain later is those seven strings and nothing else. -->
+        <link rel="canonical" href="https://meterix.krisht0.workers.dev/" />
         <meta name="robots" content="index, follow, max-image-preview:large" />
         <meta name="author" content="Meterix" />
 
@@ -54,10 +52,11 @@
             property="og:description"
             content="Polls OpenRouter, CheaperInference, DeepSeek and ElevenLabs on a timer and shows the lowest balance in your tray. Free and local."
         />
-        <meta property="og:url" content="https://example.com/" />
-        <!-- TODO: a 1200x630 PNG at this path. Social cards show text only until
-         that file exists, which is the one asset this page still needs. -->
-        <meta property="og:image" content="https://example.com/og.png" />
+        <meta property="og:url" content="https://meterix.krisht0.workers.dev/" />
+        <meta
+            property="og:image"
+            content="https://meterix.krisht0.workers.dev/og.png"
+        />
         <meta property="og:image:type" content="image/png" />
         <meta property="og:image:width" content="1200" />
         <meta property="og:image:height" content="630" />
@@ -75,7 +74,7 @@
             name="twitter:description"
             content="Polls OpenRouter, CheaperInference, DeepSeek and ElevenLabs on a timer and shows the lowest balance in your tray."
         />
-        <meta name="twitter:image" content="https://example.com/og.png" />
+        <meta name="twitter:image" content="https://meterix.krisht0.workers.dev/og.png" />
         <meta
             name="twitter:image:alt"
             content="Meterix showing four provider balances in a system tray window."
@@ -119,7 +118,7 @@
                 "softwareVersion": "0.1.0",
                 "downloadUrl": "https://github.com/KrishT0/Meterix/releases",
                 "description": "A system tray app that polls LLM API providers on a timer and shows the lowest remaining balance.",
-                "url": "https://example.com/",
+                "url": "https://meterix.krisht0.workers.dev/",
                 "isAccessibleForFree": true,
                 "license": "https://opensource.org/license/mit",
                 "offers": {

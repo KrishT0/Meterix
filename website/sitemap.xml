@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- One page, so one entry. Replace https://example.com with the real origin,
-     and keep lastmod current: it is the only date signal a static page has. -->
+<!-- One page, so one entry. Keep lastmod current: it is the only date signal a
+     static page has. -->
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
-    <loc>https://example.com/</loc>
-    <lastmod>2026-09-26</lastmod>
+    <loc>https://meterix.krisht0.workers.dev/</loc>
+    <lastmod>2026-09-27</lastmod>
     <changefreq>monthly</changefreq>
     <priority>1.0</priority>
   </url>
