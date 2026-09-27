@@ -10,8 +10,8 @@
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 use serde::Serialize;
 use tauri::image::Image;
@@ -25,12 +25,12 @@ use tauri_plugin_dialog::DialogExt;
 use meterix_core::{
     Basis, MISSING_CREDENTIAL_KIND, Notice, PROVIDERS, Settings, Snapshot, adopt_legacy_database,
     credential_hint, display_name, due_providers, export_directory, fallback_thresholds,
-    fetch_selected, first_reading_at, forget_key, history, history_csv, latest_bases, load_settings,
-    open_database, provider_fingerprint, provider_intervals, provider_rows, provider_thresholds,
-    record_attempts, requested_providers, resolved_thresholds, save_settings as persist_settings,
-    save_snapshot, save_verified_key, set_provider_enabled as store_enabled,
-    set_provider_interval as store_interval, set_provider_threshold as store_threshold,
-    take_notifications, tracked_providers,
+    fetch_selected, first_reading_at, forget_key, history, history_csv, latest_bases,
+    load_settings, open_database, provider_fingerprint, provider_intervals, provider_rows,
+    provider_thresholds, record_attempts, requested_providers, resolved_thresholds,
+    save_settings as persist_settings, save_snapshot, save_verified_key,
+    set_provider_enabled as store_enabled, set_provider_interval as store_interval,
+    set_provider_threshold as store_threshold, take_notifications, tracked_providers,
 };
 
 /// One provider, as the dashboard needs it: whether a key exists, and the most
@@ -140,9 +140,13 @@ fn overview() -> Result<Vec<ProviderOverview>, String> {
                 key_hint: hint,
                 balance: latest.as_ref().map(|snapshot| snapshot.remaining),
                 basis: latest.as_ref().map(|snapshot| snapshot.basis),
-                account_credits: latest.as_ref().and_then(|snapshot| snapshot.account_credits),
+                account_credits: latest
+                    .as_ref()
+                    .and_then(|snapshot| snapshot.account_credits),
                 usage: latest.as_ref().and_then(|snapshot| snapshot.usage),
-                spend_window_days: latest.as_ref().and_then(|snapshot| snapshot.spend_window_days),
+                spend_window_days: latest
+                    .as_ref()
+                    .and_then(|snapshot| snapshot.spend_window_days),
                 recorded_at: latest.map(|snapshot| snapshot.recorded_at),
                 threshold,
                 key_fingerprint: provider_fingerprint(name),
@@ -494,7 +498,11 @@ fn status_colour(outcomes: &[RefreshOutcome], thresholds: &HashMap<String, f64>)
 
     let balances: Vec<(String, f64)> = outcomes
         .iter()
-        .filter_map(|outcome| outcome.balance.map(|balance| (outcome.provider.clone(), balance)))
+        .filter_map(|outcome| {
+            outcome
+                .balance
+                .map(|balance| (outcome.provider.clone(), balance))
+        })
         .collect();
 
     if balances.is_empty() {
@@ -577,6 +585,29 @@ fn open_dashboard(app: AppHandle) {
     show_dashboard(&app);
 }
 
+/// What the popover's own window events need to know.
+///
+/// Managed rather than captured in the event closure, because `toggle_popover`
+/// has to stamp `opened_at` at the moment it shows the window, and the closure
+/// attached to the window cannot reach that.
+#[derive(Default)]
+struct PopoverState {
+    /// Set once the popover has actually held focus.
+    held_focus: AtomicBool,
+    /// When it was last shown. See `POPOVER_SETTLE`.
+    opened_at: Mutex<Option<Instant>>,
+}
+
+/// How long after being shown a focus loss is read as part of the opening rather
+/// than as the user dismissing the popover.
+///
+/// The first tray click builds this window, positions it, shows it and asks for
+/// focus, all inside one click event. The shell finishing that same click then
+/// takes the focus back: a real focus loss in the event stream that the user did
+/// not cause. It arrives well inside this window, and a deliberate click
+/// somewhere else does not.
+const POPOVER_SETTLE: Duration = Duration::from_millis(200);
+
 /// Show the popover beside the tray icon, or hide it if it is already up.
 fn toggle_popover(app: &AppHandle, anchor: Option<tauri::Rect>) {
     let Some(popover) = popover_window(app) else {
@@ -594,6 +625,12 @@ fn toggle_popover(app: &AppHandle, anchor: Option<tauri::Rect>) {
 
     let _ = popover.show();
     let _ = popover.set_focus();
+
+    // Stamped after the request for focus rather than before it, so the settle
+    // window covers the activation this call is about to cause.
+    if let Ok(mut opened_at) = app.state::<PopoverState>().opened_at.lock() {
+        *opened_at = Some(Instant::now());
+    }
 }
 
 /// The popover window, building it the first time one is asked for.
@@ -625,21 +662,41 @@ fn popover_window(app: &AppHandle) -> Option<tauri::WebviewWindow> {
     // which is what every tray popover does.
     //
     // With one exception, and it is the bug that made the first click open the
-    // popover and then take it away again a tenth of a second later. This window
-    // is built, positioned and shown inside a single click, so the focus event
-    // delivered just afterwards says it lost a focus it never had: nothing the
-    // user did produced it, and acting on it closed the window they had just
-    // asked for. On the second click the window already exists, no creation event
-    // is queued, and it behaved. So the loss is only believed once the popover has
-    // actually held focus.
+    // popover and then take it away again a tenth of a second later. An earlier
+    // version of this comment claimed the window "lost a focus it never had", and
+    // guarded on that: a latch set by `Focused(true)`, with the hide ignored until
+    // it had been set. That guard cannot work, because the order it assumes is the
+    // wrong way round. Opening the window asks for focus and gets it, so the latch
+    // is satisfied by the act of opening; the loss that follows is the shell
+    // finishing the same click. The window did hold focus, so the latch says
+    // believe it, and the popover closes under the cursor.
+    //
+    // What separates that loss from a dismissal is time, not order. `opened_at`
+    // is stamped on every show, and a loss inside the settle window is ignored.
     let handle = popover.clone();
-    let held_focus = Arc::new(AtomicBool::new(false));
-    popover.on_window_event(move |event| match event {
-        WindowEvent::Focused(true) => held_focus.store(true, Ordering::SeqCst),
-        WindowEvent::Focused(false) if held_focus.load(Ordering::SeqCst) => {
-            let _ = handle.hide();
+    let app = app.clone();
+    popover.on_window_event(move |event| {
+        match event {
+            WindowEvent::Focused(true) => {
+                app.state::<PopoverState>()
+                    .held_focus
+                    .store(true, Ordering::SeqCst);
+            }
+            WindowEvent::Focused(false) => {
+                let state = app.state::<PopoverState>();
+                let settled = state
+                    .opened_at
+                    .lock()
+                    .ok()
+                    .and_then(|at| *at)
+                    .is_none_or(|at| at.elapsed() >= POPOVER_SETTLE);
+
+                if state.held_focus.load(Ordering::SeqCst) && settled {
+                    let _ = handle.hide();
+                }
+            }
+            _ => {}
         }
-        _ => {}
     });
 
     Some(popover)
@@ -893,11 +950,7 @@ fn settings(app: AppHandle) -> Result<SettingsView, String> {
                     .iter()
                     .find(|(provider, _)| provider == name)
                     .and_then(|(_, value)| value.clone()),
-                threshold_applies: bases
-                    .get(name)
-                    .copied()
-                    .flatten()
-                    .map(Basis::is_balance),
+                threshold_applies: bases.get(name).copied().flatten().map(Basis::is_balance),
                 poll_interval_minutes: intervals
                     .iter()
                     .find(|(provider, _)| provider == name)
@@ -1088,7 +1141,6 @@ fn set_export_directory(app: AppHandle) -> Result<Option<String>, String> {
 }
 
 fn main() {
-
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
@@ -1129,6 +1181,7 @@ fn main() {
 
             app.manage(LastOutcomes::default());
             app.manage(Quitting::default());
+            app.manage(PopoverState::default());
             build_tray(&handle)?;
 
             // Closing the dashboard hides it rather than tearing down its
