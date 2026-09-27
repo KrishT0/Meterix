@@ -1,0 +1,62 @@
+# What runs on every push and pull request.
+#
+# This exists so that a release is never the first time anything compiles. It is
+# the cheap half of CI: the Rust tests, clippy at deny-warnings, and a frontend
+# type-check and build. It does not build installers - that is release.yml.
+#
+# It runs on Linux only. Nothing here is platform-specific, and a second and third
+# runner would not catch anything a Linux runner misses; the platform-specific
+# breakage shows up in the release matrix, where it matters.
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v7
+
+      # Needed to link the crate at all, let alone test it.
+      - name: install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            build-essential \
+            curl \
+            wget \
+            file \
+            libxdo-dev \
+            libssl-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: lts/*
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: .
+
+      # Before the Rust steps, deliberately. The Tauri crate's build script reads
+      # the configured frontendDist, so `cargo test` fails on a fresh checkout
+      # unless ../dist has already been built.
+      - name: frontend type-check and build
+        working-directory: app
+        run: |
+          npm ci
+          npm run build
+
+      - name: Rust tests
+        run: cargo test --workspace
+
+      - name: clippy, warnings denied
+        run: cargo clippy --workspace --all-targets -- -D warnings
