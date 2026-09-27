@@ -55,6 +55,24 @@ jobs:
           npm ci
           npm run build
 
+      # The keychain tests need a real Secret Service. On Linux, keyring talks to
+      # a D-Bus Secret Service daemon, and a headless runner has neither a session
+      # bus nor a keyring, so `forget_key` fails there for a reason that has
+      # nothing to do with this code. Installing a keyring is not papering over a
+      # test: it is the only way the Linux leg of that path is exercised at all.
+      #
+      # The recipe is the keyring crate's own CI, with an explicit session bus so
+      # it does not depend on the runner happening to provide one. The password on
+      # the login keyring is arbitrary; that the keyring exists and is unlocked is
+      # what matters, because a locked one answers nothing.
+      - name: start a Secret Service for the keychain tests
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gnome-keyring dbus-x11
+          eval "$(dbus-launch --sh-syntax)"
+          echo "DBUS_SESSION_BUS_ADDRESS=$DBUS_SESSION_BUS_ADDRESS" >> "$GITHUB_ENV"
+          printf 'meterix-ci' | gnome-keyring-daemon --components=secrets --daemonize --unlock
+
       - name: Rust tests
         run: cargo test --workspace
 
