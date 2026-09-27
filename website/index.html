@@ -19,8 +19,9 @@
   2. The page is dark only, because the app is. A light landing page wrapped around
      a dark product would be a different brand.
 
-  Three placeholders before it can be hosted, all documented in README.md: the
-  reserved example.com origin, the absent repository URL, and the missing og.png.
+  One placeholder is left before this can be hosted, and README.md lists it: the
+  reserved example.com origin, which stands in for the real hostname in seven
+  places. The repository URL and og.png both exist now.
 -->
 <html lang="en">
     <head>
@@ -114,7 +115,9 @@
                 "name": "Meterix",
                 "applicationCategory": "DeveloperApplication",
                 "applicationSubCategory": "API credit balance tracker",
-                "operatingSystem": "Windows",
+                "operatingSystem": "Windows, macOS, Linux",
+                "softwareVersion": "0.1.0",
+                "downloadUrl": "https://github.com/KrishT0/Meterix/releases",
                 "description": "A system tray app that polls LLM API providers on a timer and shows the lowest remaining balance.",
                 "url": "https://example.com/",
                 "isAccessibleForFree": true,
@@ -968,6 +971,110 @@
                 color: var(--ink-dim);
             }
 
+            /* ---------- downloads ----------
+               Hairlines between platforms, not cards: the file list is data, and the
+               rest of the page already groups data this way. */
+            .release {
+                display: flex;
+                flex-wrap: wrap;
+                align-items: center;
+                gap: 12px 16px;
+                margin-top: 26px;
+            }
+
+            .files {
+                margin-top: 40px;
+            }
+
+            .platform {
+                padding: 26px 0;
+            }
+
+            .platform + .platform {
+                border-top: 1px solid var(--line);
+            }
+
+            .platform h3 {
+                font-size: 18px;
+                margin-bottom: 14px;
+            }
+
+            .file {
+                display: grid;
+                grid-template-columns: minmax(0, 1fr) 74px minmax(0, 190px);
+                gap: 16px;
+                align-items: baseline;
+                padding: 7px 0;
+                text-decoration: none;
+            }
+
+            .file:hover .file-name {
+                color: var(--amber);
+            }
+
+            .file-name {
+                font-family: var(--font-mono);
+                font-size: 12.5px;
+                overflow-wrap: anywhere;
+            }
+
+            .file-size {
+                font-family: var(--font-mono);
+                font-size: 11.5px;
+                color: var(--ink-muted);
+                text-align: right;
+            }
+
+            .file-note {
+                font-size: 13px;
+                color: var(--ink-dim);
+            }
+
+            .caveat {
+                margin-top: 14px;
+                font-size: 13.5px;
+                color: var(--ink-dim);
+                max-width: 62ch;
+            }
+
+            .caveat strong {
+                color: var(--ink);
+                font-weight: 500;
+            }
+
+            .all-releases {
+                margin-top: 28px;
+                font-size: 14px;
+                color: var(--ink-muted);
+            }
+
+            .all-releases a {
+                color: var(--amber);
+                border-bottom: 1px solid var(--amber-line);
+            }
+
+            .source {
+                margin-top: 48px;
+                padding-top: 30px;
+                border-top: 1px solid var(--line);
+            }
+
+            .source h3 {
+                font-size: 18px;
+            }
+
+            .source .lede {
+                margin-top: 8px;
+            }
+
+            .repo-link {
+                display: inline-block;
+                font-family: var(--font-mono);
+                font-size: 12px;
+                color: var(--amber);
+                border-bottom: 1px solid var(--amber-line);
+            }
+
             /* ---------- closing band ---------- */
             .closing {
                 padding: 96px 0 84px;
@@ -1467,6 +1574,18 @@
                 .code pre {
                     padding: 16px;
                     font-size: 11.5px;
+                }
+
+                /* The file rows stack: a name, a size and a note cannot share 350px. */
+                .file {
+                    grid-template-columns: minmax(0, 1fr);
+                    gap: 2px;
+                }
+                .file-size {
+                    text-align: left;
+                }
+                .file-note {
+                    margin-bottom: 4px;
                 }
 
                 /* The chart keeps its shape and its legend here; the axis numbers would be
@@ -2576,15 +2695,20 @@ DeepSeek                    $9.07  account balance</pre>
                             <h3>Not finished yet</h3>
                             <ul>
                                 <li>
-                                    There is no installer. You build it from
-                                    source, which the section below walks
-                                    through.
+                                    The installers are not code signed, so Windows
+                                    shows SmartScreen and macOS asks you to confirm.
+                                    What each one says is written out in the
+                                    section below.
                                 </li>
                                 <li>Dark only. There is no light theme.</li>
                                 <li>
-                                    Windows is the only platform this has been
-                                    run on. macOS and Linux are in the code and
-                                    untested.
+                                    Windows is the only platform this has been run
+                                    on. macOS and Linux build, and nobody has
+                                    launched them yet.
+                                </li>
+                                <li>
+                                    There is no auto-update, so a new version means
+                                    a new download.
                                 </li>
                                 <li>
                                     A DeepSeek account funded in yuan is refused
@@ -2755,43 +2879,168 @@ DeepSeek                    $9.07  account balance</pre>
 
             <section class="section" id="get-it">
                 <div class="wrap get-it">
+                    <!--
+                        On a new release, four things in this section need updating and
+                        nothing else does: the version in the first paragraph, the tag in
+                        every download URL, the seven file names, and their sizes. The
+                        button is upgraded at runtime, so it never goes stale on its own.
+                    -->
                     <h2>Get it</h2>
+
                     <p class="lede">
-                        Clone the repository and build it. Rust 1.85 or newer,
-                        Node 22 or newer, and WebView2, which Windows 11 already
-                        has. Nothing needs OpenSSL.
+                        Meterix 0.1.0, pre-alpha. Four providers, one tray icon, and no
+                        account. Pre-alpha means it runs and it is worth having if you
+                        already pay several providers, but the provider list, the database
+                        location and the settings screen can still change between builds.
                     </p>
 
-                    <div class="code">
-                        <pre><span class="c"># build and run</span>
-git clone <span class="k">&lt;repository&gt;</span> meterix
-cd meterix/app
+                    <p class="lede">
+                        Nothing is code signed yet, which costs one extra click on Windows
+                        and one on macOS. What you will see is written below rather than
+                        left to surprise you.
+                    </p>
+
+                    <div class="release">
+                        <a
+                            class="btn btn-primary"
+                            data-download
+                            href="https://github.com/KrishT0/Meterix/releases"
+                        >
+                            All downloads
+                        </a>
+                        <span class="label" data-download-note>
+                            every file, on the releases page
+                        </span>
+                    </div>
+
+                    <div class="files">
+                        <div class="platform">
+                            <h3>Windows</h3>
+                            <a
+                                class="file"
+                                href="https://github.com/KrishT0/Meterix/releases/download/v0.1.0/Meterix_0.1.0_x64-setup.exe"
+                            >
+                                <span class="file-name">Meterix_0.1.0_x64-setup.exe</span>
+                                <span class="file-size">4.6 MB</span>
+                                <span class="file-note">the installer</span>
+                            </a>
+                            <a
+                                class="file"
+                                href="https://github.com/KrishT0/Meterix/releases/download/v0.1.0/Meterix_0.1.0_x64_en-US.msi"
+                            >
+                                <span class="file-name">Meterix_0.1.0_x64_en-US.msi</span>
+                                <span class="file-size">6.3 MB</span>
+                                <span class="file-note">for managed installs</span>
+                            </a>
+                            <p class="caveat">
+                                <strong>Windows shows "Windows protected your PC".</strong>
+                                That is SmartScreen noticing an unsigned installer. Choose
+                                <em>More info</em>, then <em>Run anyway</em>.
+                            </p>
+                        </div>
+
+                        <div class="platform">
+                            <h3>macOS</h3>
+                            <a
+                                class="file"
+                                href="https://github.com/KrishT0/Meterix/releases/download/v0.1.0/Meterix_0.1.0_aarch64.dmg"
+                            >
+                                <span class="file-name">Meterix_0.1.0_aarch64.dmg</span>
+                                <span class="file-size">6.4 MB</span>
+                                <span class="file-note">Apple Silicon</span>
+                            </a>
+                            <a
+                                class="file"
+                                href="https://github.com/KrishT0/Meterix/releases/download/v0.1.0/Meterix_0.1.0_x64.dmg"
+                            >
+                                <span class="file-name">Meterix_0.1.0_x64.dmg</span>
+                                <span class="file-size">6.9 MB</span>
+                                <span class="file-note">Intel</span>
+                            </a>
+                            <p class="caveat">
+                                <strong>Ad-hoc signed, so macOS will not call it damaged</strong>,
+                                but not notarised, so the first launch still asks. Open
+                                <em>System Settings</em>, then <em>Privacy &amp; Security</em>,
+                                and choose <em>Open Anyway</em>. Notarising needs a paid
+                                Apple account, so that is where it stands.
+                            </p>
+                        </div>
+
+                        <div class="platform">
+                            <h3>Linux</h3>
+                            <a
+                                class="file"
+                                href="https://github.com/KrishT0/Meterix/releases/download/v0.1.0/Meterix_0.1.0_amd64.AppImage"
+                            >
+                                <span class="file-name">Meterix_0.1.0_amd64.AppImage</span>
+                                <span class="file-size">82.5 MB</span>
+                                <span class="file-note">chmod +x, then run</span>
+                            </a>
+                            <a
+                                class="file"
+                                href="https://github.com/KrishT0/Meterix/releases/download/v0.1.0/Meterix_0.1.0_amd64.deb"
+                            >
+                                <span class="file-name">Meterix_0.1.0_amd64.deb</span>
+                                <span class="file-size">8.4 MB</span>
+                                <span class="file-note">apt install</span>
+                            </a>
+                            <a
+                                class="file"
+                                href="https://github.com/KrishT0/Meterix/releases/download/v0.1.0/Meterix-0.1.0-1.x86_64.rpm"
+                            >
+                                <span class="file-name">Meterix-0.1.0-1.x86_64.rpm</span>
+                                <span class="file-size">8.4 MB</span>
+                                <span class="file-note">Fedora, openSUSE</span>
+                            </a>
+                            <p class="caveat">
+                                <strong>Two things have to be present on Linux.</strong> The
+                                tray icon needs an AppIndicator host the system can see, and
+                                storing a key needs a Secret Service. On a minimal install
+                                with neither, the app runs but has no icon and cannot save a
+                                key. The AppImage is the one that needs no installer at all:
+                                make it executable and run it.
+                            </p>
+                        </div>
+                    </div>
+
+                    <p class="all-releases">
+                        Every build, including the pre-release ones:
+                        <a href="https://github.com/KrishT0/Meterix/releases"
+                            >github.com/KrishT0/Meterix/releases</a
+                        >
+                    </p>
+
+                    <div class="source">
+                        <h3>Or build it from source</h3>
+                        <p class="lede">
+                            Rust 1.85 or newer, Node 22 or newer, and WebView2, which
+                            Windows 11 already has. Nothing needs OpenSSL.
+                        </p>
+
+                        <div class="code">
+                            <pre><span class="c"># build and run</span>
+git clone https://github.com/KrishT0/Meterix
+cd Meterix/app
 npm install
 npm run tauri dev
 
 <span class="c"># release build</span>
 npm run tauri build</pre>
-                    </div>
+                        </div>
 
-                    <div class="callout">
-                        <h3>No installer yet</h3>
-                        <p>
-                            There is no download, and this page will not pretend
-                            otherwise. The bundler needs to fetch NSIS on first
-                            use and that download has not completed in the
-                            environment this was built in, so no installer has
-                            ever been produced. When there is one, it will
-                            appear here.
+                        <p class="after-code">
+                            Use <code>npm run tauri build</code> rather than a plain cargo
+                            build. A bare release build produces a binary that loads the
+                            development server, so it opens an error page with no
+                            JavaScript running at all. It looks like it worked.
+                        </p>
+
+                        <p class="after-code">
+                            <a class="repo-link" href="https://github.com/KrishT0/Meterix"
+                                >Source on GitHub</a
+                            >
                         </p>
                     </div>
-
-                    <p class="after-code">
-                        Use <code>npm run tauri build</code> rather than a plain
-                        cargo build. A bare release build produces a binary that
-                        loads the development server, so it opens an error page
-                        with no JavaScript running at all. It looks like it
-                        worked.
-                    </p>
                 </div>
             </section>
 
@@ -3041,6 +3290,117 @@ npm run tauri build</pre>
                         });
                     },
                 );
+
+                /* The download button. The markup carries a plain link to the releases
+           page first, which works with scripting off and cannot go stale; this
+           upgrades it to the file for the machine in front of it when that can be
+           worked out. The list of releases is read rather than /releases/latest,
+           which does not exist while every release is a pre-release. Every failure
+           here leaves the original link standing, so there is no state in which the
+           button does nothing.
+
+           If a Content-Security-Policy is ever added, this needs api.github.com in
+           connect-src. */
+                (function () {
+                    var button = document.querySelector("[data-download]");
+                    var note = document.querySelector("[data-download-note]");
+                    if (!button) {
+                        return;
+                    }
+
+                    var ua = navigator.userAgent;
+                    var platform = null;
+                    if (/Windows/i.test(ua)) {
+                        platform = "windows";
+                    } else if (/Mac/i.test(ua)) {
+                        platform = "macos";
+                    } else if (/Linux|X11/i.test(ua)) {
+                        platform = "linux";
+                    }
+                    if (!platform) {
+                        return;
+                    }
+
+                    var name =
+                        platform === "windows"
+                            ? "Windows"
+                            : platform === "macos"
+                              ? "macOS"
+                              : "Linux";
+
+                    /* Apple Silicon and Intel share one platform string. Chromium will
+               say which it is if asked, and anything else leaves the button alone:
+               a wrong guess is worse than no guess, and the file rows in the
+               section list both disks either way. */
+                    function macSuffix() {
+                        var data = navigator.userAgentData;
+                        if (!data || !data.getHighEntropyValues) {
+                            return Promise.resolve(null);
+                        }
+                        return data
+                            .getHighEntropyValues(["architecture"])
+                            .then(function (values) {
+                                if (values.architecture === "arm") {
+                                    return "_aarch64.dmg";
+                                }
+                                return values.architecture === "x86" ? "_x64.dmg" : null;
+                            })
+                            .catch(function () {
+                                return null;
+                            });
+                    }
+
+                    var wanted;
+                    if (platform === "windows") {
+                        wanted = Promise.resolve("_x64-setup.exe");
+                    } else if (platform === "linux") {
+                        wanted = Promise.resolve("_amd64.AppImage");
+                    } else {
+                        wanted = macSuffix();
+                    }
+
+                    wanted
+                        .then(function (suffix) {
+                            if (!suffix) {
+                                return null;
+                            }
+                            return fetch(
+                                "https://api.github.com/repos/KrishT0/Meterix/releases",
+                            )
+                                .then(function (response) {
+                                    return response.ok ? response.json() : null;
+                                })
+                                .then(function (releases) {
+                                    if (!Array.isArray(releases)) {
+                                        return;
+                                    }
+                                    var published = releases.filter(function (release) {
+                                        return !release.draft;
+                                    })[0];
+                                    if (!published) {
+                                        return;
+                                    }
+                                    var asset = published.assets.filter(function (candidate) {
+                                        return candidate.name.slice(-suffix.length) === suffix;
+                                    })[0];
+                                    if (!asset) {
+                                        return;
+                                    }
+                                    button.href = asset.browser_download_url;
+                                    button.textContent = "Download for " + name;
+                                    if (note) {
+                                        note.textContent =
+                                            asset.name +
+                                            " \u00b7 " +
+                                            (asset.size / 1048576).toFixed(1) +
+                                            " MB";
+                                    }
+                                });
+                        })
+                        .catch(function () {
+                            /* Deliberately nothing: the link is already correct. */
+                        });
+                })();
             })();
         </script>
     </body>

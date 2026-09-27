@@ -30,7 +30,7 @@ means an unmatched path returns `404.html` with a real 404 status rather than a
 200 with "not found" written on it, which is the difference between a missing page
 and a soft 404 that a crawler counts as thin content.
 
-**Two things to settle before the first deploy, both marked in the code:**
+**One thing to settle before the first deploy, marked in the code:**
 
 * **The origin.** Five places in `index.html` (`canonical`, `og:url`, `og:image`,
   `twitter:image`, the JSON-LD `url`), plus `robots.txt` and `sitemap.xml`, still
@@ -39,21 +39,44 @@ and a soft 404 that a crawler counts as thin content.
   all of them with the real origin, and uncomment `routes` in `wrangler.jsonc` to
   attach a custom domain. A `workers.dev` subdomain works, but it is not the
   address that should end up in a canonical tag.
-* **`og.png`.** It exists now, rendered from `mockup/og-card.html`. If a screenshot
-  of the app is wanted there instead, replace the file and keep it 1200x630.
+
+`og.png` is done, rendered from `mockup/og-card.html`. If a screenshot of the app is
+wanted there instead, replace the file and keep it 1200x630.
+
+## Cutting a release touches the site
+
+The download section links to files by name, so a new release needs four edits in
+`index.html` and nothing else. There is a comment in the section saying this too:
+
+1. The version in the first paragraph ("Meterix 0.1.0, pre-alpha").
+2. The tag in each of the seven download URLs (`releases/download/v0.1.0/...`).
+3. The seven file names.
+4. Their sizes.
+
+The download **button** needs none of that. It ships as a plain link to the
+releases page and is upgraded at runtime by a few lines of script, so it always
+points at the newest published release on its own. That script is the only reason
+the page talks to anything off-origin: it reads `api.github.com` in the visitor's
+own browser, so the rate limit is theirs rather than a shared one.
 
 ### Response headers, honestly
 
-Cloudflare Pages supports `_headers` and `_redirects` files. Workers static assets
-has no such page in its documentation and neither
-`/workers/static-assets/routing/advanced/headers/` nor `.../redirects/` exists, so
-this directory ships neither file rather than shipping one that looks like it
-works. Caching and compression of assets are automatic.
+`_headers` and `_redirects` **do** work here, and this directory ships neither yet.
+The Workers static assets documentation has pages for both
+(`/workers/static-assets/headers/` and `.../redirects/`), and the platform limits
+page lists what they allow: 100 header rules, 2,000 static and 100 dynamic
+redirects. An earlier version of this file claimed otherwise, having looked at the
+wrong paths and generalised from two 404s.
 
-If security or cache headers are wanted (HSTS, `X-Content-Type-Options`, a long
-`Cache-Control` on `fonts/`), they come from either a Cloudflare zone-level rule or
-a small Worker added to this project. That Worker is a separate decision because
-it means code running in front of every request.
+So security or cache headers (HSTS, `X-Content-Type-Options`, a long
+`Cache-Control` on `fonts/`) can be a plain text file in this directory when they
+are wanted, with no Worker involved. Caching and compression of assets are already
+automatic.
+
+**One constraint to remember when that file lands:** the download script fetches
+`https://api.github.com`, so any `Content-Security-Policy` must allow that host in
+`connect-src`. Without it the button silently falls back to linking the releases
+page, which works but is not the intent.
 
 ## Rebuilding the two images
 
